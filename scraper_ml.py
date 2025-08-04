@@ -5,6 +5,7 @@ from selenium.common.exceptions import WebDriverException
 import pandas as pd
 import time
 import random
+import sys
 
 from colunas_utils import encontrar_colunas_necessarias
 
@@ -22,6 +23,7 @@ COLUNAS_SINONIMOS = {
 LIMITE_PRODUTOS = 50
 DELAY_MIN = 5
 DELAY_MAX = 10
+DEBUG = True
 
 # ============ FUNÇÕES ============
 
@@ -67,6 +69,11 @@ def classificar_tipo(tamanho):
 print("🔍 Lendo planilha...")
 df, aba, colunas = encontrar_colunas_necessarias(NOME_ARQUIVO, COLUNAS_SINONIMOS)
 print(f"✅ Colunas detectadas: {colunas}")
+
+if DEBUG:
+    print("🧪 Modo DEBUG ativo. Primeiros 3 itens:")
+    print(df.head(3))
+    sys.exit()
 
 resultados = []
 total_processados = 0
