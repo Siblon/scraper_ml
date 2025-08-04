@@ -9,7 +9,7 @@ import unicodedata
 
 # ============ CONFIGURAÇÕES ============
 
-NOME_ARQUIVO = "LISTA ADIDAS 31 07 2025.xlsx"
+NOME_ARQUIVO = "66.xlsx"
 COLUNAS_SINONIMOS = {
     "produto": ["descricao do item", "nome", "produto", "descricao"],
     "modelo": ["modelo", "cod", "codigo", "referencia"],
@@ -156,3 +156,4 @@ finally:
     resultado_df.to_excel(arquivo_saida, index=False)
     print(f"✅ Resultados salvos em: {arquivo_saida}")
     print(f"🏁 Extração finalizada! Total processado: {total_processados}")
+
