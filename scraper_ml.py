@@ -10,8 +10,14 @@ import unicodedata
 # ============ CONFIGURAÇÕES ============
 
 NOME_ARQUIVO = "LISTA ADIDAS 31 07 2025.xlsx"
-COLUNA_PRODUTO = "descricao do item"
-COLUNA_TAMANHO = "tam"
+COLUNAS_SINONIMOS = {
+    "produto": ["descricao do item", "nome", "produto", "descricao"],
+    "modelo": ["modelo", "cod", "codigo", "referencia"],
+    "tamanho": ["tamanho", "tam", "numero"],
+    "quantidade": ["quantidade", "qtd", "qtde"],
+    "preco_unitario": ["preco unitario", "valor unitario", "preco"],
+    "preco_total": ["preco total", "valor total", "total"]
+}
 LIMITE_PRODUTOS = 50
 DELAY_MIN = 5
 DELAY_MAX = 10
@@ -23,26 +29,33 @@ def normalizar(texto):
         return ""
     return unicodedata.normalize('NFKD', texto).encode('ASCII', 'ignore').decode('utf-8').strip().lower()
 
-def encontrar_colunas_necessarias(caminho_arquivo, col_produto_nome, col_tam_nome):
+def encontrar_colunas_necessarias(caminho_arquivo, sinonimos):
+    """Lê a planilha e identifica dinamicamente as colunas necessárias.
+
+    Retorna o DataFrame da aba encontrada, o nome da aba e um dicionário
+    com as colunas mapeadas para produto, modelo, tamanho, quantidade,
+    preço unitário e total.
+    """
+
     xls = pd.ExcelFile(caminho_arquivo)
     for aba in xls.sheet_names:
         df = pd.read_excel(xls, sheet_name=aba)
         colunas_normalizadas = [normalizar(c) for c in df.columns]
-        col_produto_norm = normalizar(col_produto_nome)
-        col_tam_norm = normalizar(col_tam_nome)
 
-        if col_produto_norm in colunas_normalizadas:
-            idx_prod = colunas_normalizadas.index(col_produto_norm)
-            col_produto = df.columns[idx_prod]
-            col_modelo = df.columns[idx_prod + 1] if idx_prod + 1 < len(df.columns) else None
+        colunas_encontradas = {}
+        for chave, nomes in sinonimos.items():
+            encontrado = None
+            for nome in nomes:
+                nome_norm = normalizar(nome)
+                if nome_norm in colunas_normalizadas:
+                    idx = colunas_normalizadas.index(nome_norm)
+                    encontrado = df.columns[idx]
+                    break
+            colunas_encontradas[chave] = encontrado
 
-            if col_tam_norm in colunas_normalizadas:
-                idx_tam = colunas_normalizadas.index(col_tam_norm)
-                col_tam = df.columns[idx_tam]
-            else:
-                raise ValueError("❌ Coluna de tamanho não encontrada!")
+        if colunas_encontradas.get("produto") and colunas_encontradas.get("tamanho"):
+            return df, aba, colunas_encontradas
 
-            return df, aba, col_produto, col_modelo, col_tam
     raise ValueError("❌ Colunas obrigatórias não encontradas!")
 
 def configurar_driver():
@@ -85,7 +98,14 @@ def classificar_tipo(tamanho):
 # ============ EXECUÇÃO ============
 
 print("🔍 Lendo planilha...")
-df, aba, col_produto, col_modelo, col_tam = encontrar_colunas_necessarias(NOME_ARQUIVO, COLUNA_PRODUTO, COLUNA_TAMANHO)
+df, aba, colunas = encontrar_colunas_necessarias(NOME_ARQUIVO, COLUNAS_SINONIMOS)
+col_produto = colunas["produto"]
+col_modelo = colunas.get("modelo")
+col_tam = colunas["tamanho"]
+col_quantidade = colunas.get("quantidade")
+col_preco_unitario = colunas.get("preco_unitario")
+col_preco_total = colunas.get("preco_total")
+print(f"✅ Colunas detectadas: {colunas}")
 
 resultados = []
 total_processados = 0
