@@ -38,8 +38,23 @@ def encontrar_colunas_necessarias(caminho_arquivo, sinonimos):
                     break
             colunas_encontradas[chave] = encontrado
 
+        print(f"\n📄 Analisando aba '{aba}':")
+        for chave, nomes in sinonimos.items():
+            coluna = colunas_encontradas.get(chave)
+            if coluna:
+                print(f"  ✅ Coluna '{chave}' detectada: '{coluna}'")
+            else:
+                sugestoes = ", ".join(nomes)
+                print(
+                    f"  ⚠️ Coluna '{chave}' não encontrada. Sugestões: {sugestoes}"
+                )
+
         if colunas_encontradas.get("produto") and colunas_encontradas.get("tamanho"):
             return df, aba, colunas_encontradas
+
+        print(
+            "  ⚠️ Colunas obrigatórias 'produto' e 'tamanho' não encontradas nesta aba."
+        )
 
     raise ValueError("❌ Colunas obrigatórias não encontradas!")
 
