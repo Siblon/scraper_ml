@@ -99,12 +99,6 @@ def classificar_tipo(tamanho):
 
 print("🔍 Lendo planilha...")
 df, aba, colunas = encontrar_colunas_necessarias(NOME_ARQUIVO, COLUNAS_SINONIMOS)
-col_produto = colunas["produto"]
-col_modelo = colunas.get("modelo")
-col_tam = colunas["tamanho"]
-col_quantidade = colunas.get("quantidade")
-col_preco_unitario = colunas.get("preco_unitario")
-col_preco_total = colunas.get("preco_total")
 print(f"✅ Colunas detectadas: {colunas}")
 
 resultados = []
@@ -115,9 +109,24 @@ try:
         if total_processados >= LIMITE_PRODUTOS:
             break
 
-        nome_produto = str(row[col_produto])
-        modelo_produto = str(row[col_modelo]) if col_modelo else ""
-        tamanho = row[col_tam]
+        faltando = []
+        for chave in ("produto", "tamanho"):
+            coluna = colunas.get(chave)
+            valor = row.get(coluna) if coluna else None
+            if coluna is None or pd.isna(valor) or str(valor).strip() == "":
+                faltando.append(chave)
+        if faltando:
+            print(f"⚠️ Linha {index} ignorada: dados ausentes em {', '.join(faltando)}.")
+            continue
+
+        nome_produto = str(row[colunas["produto"]])
+        modelo_col = colunas.get("modelo")
+        modelo_produto = (
+            str(row[modelo_col])
+            if modelo_col and not pd.isna(row.get(modelo_col))
+            else ""
+        )
+        tamanho = row[colunas["tamanho"]]
         tipo = classificar_tipo(tamanho)
 
         termo_busca = f"{nome_produto} {modelo_produto} {tipo}"
@@ -125,21 +134,23 @@ try:
 
         try:
             precos = buscar_preco(termo_busca)
-            media = round(sum(precos)/len(precos), 2) if precos else None
+            media = round(sum(precos) / len(precos), 2) if precos else None
             qtd_resultados = len(precos)
         except Exception as e:
             print(f"❌ Erro ao buscar: {e}")
             media = None
             qtd_resultados = "Erro"
 
-        resultados.append({
-            "Nome do Produto": nome_produto,
-            "Modelo": modelo_produto,
-            "Tamanho": tamanho,
-            "Tipo": tipo,
-            "Preço Médio": media,
-            "Qtd Resultados": qtd_resultados
-        })
+        resultados.append(
+            {
+                "Nome do Produto": nome_produto,
+                "Modelo": modelo_produto,
+                "Tamanho": tamanho,
+                "Tipo": tipo,
+                "Preço Médio": media,
+                "Qtd Resultados": qtd_resultados,
+            }
+        )
 
         total_processados += 1
         delay = random.uniform(DELAY_MIN, DELAY_MAX)
