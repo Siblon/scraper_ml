@@ -145,6 +145,28 @@ def inferir_coluna_por_conteudo(serie, n=5) -> Optional[str]:
     return None
 
 
+def inferir_seguro(df: pd.DataFrame, coluna, n=5) -> Optional[str]:
+    """Obtém coluna de forma resiliente e delega para ``inferir_coluna_por_conteudo``.
+
+    Garante que ``coluna`` seja um nome válido do ``DataFrame`` e lida com
+    casos de nomes duplicados ou colunas não encontradas. Nomes iniciados
+    por ``Unnamed`` são ignorados.
+    """
+    nome = str(coluna).strip()
+    if nome.lower().startswith("unnamed"):
+        return None
+
+    serie = df.get(nome)
+    if serie is None:
+        return None
+    if isinstance(serie, pd.DataFrame):
+        if serie.shape[1] == 0:
+            return None
+        serie = serie.iloc[:, 0]
+
+    return inferir_coluna_por_conteudo(serie, n=n)
+
+
 def encontrar_colunas_necessarias(caminho_arquivo, sinonimos, linhas_amostra=5):
     """Lê a planilha e identifica dinamicamente as colunas necessárias.
 
@@ -166,6 +188,7 @@ def encontrar_colunas_necessarias(caminho_arquivo, sinonimos, linhas_amostra=5):
         linha_cabecalho = detectar_linha_cabecalho(df_raw, sinonimos)
         df = df_raw.iloc[linha_cabecalho + 1 :].copy()
         df.columns = df_raw.iloc[linha_cabecalho].fillna("").astype(str)
+        df.columns = df.columns.str.strip()
         df = preprocessar_planilha(df)
         colunas_normalizadas = [normalizar(c) for c in df.columns]
 
@@ -201,7 +224,7 @@ def encontrar_colunas_necessarias(caminho_arquivo, sinonimos, linhas_amostra=5):
                 colunas_encontradas[chave] = None
 
         for coluna in list(colunas_restantes):
-            guess = inferir_coluna_por_conteudo(df[coluna], n=linhas_amostra)
+            guess = inferir_seguro(df, coluna, n=linhas_amostra)
             if guess:
                 destino = guess
                 if (
