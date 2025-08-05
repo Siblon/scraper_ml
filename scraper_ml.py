@@ -7,7 +7,7 @@ primeiros links no Mercado Livre através da função
 
 Caso a planilha possua uma coluna ``Modelo``, ela é adicionada ao termo de
 busca para tornar a consulta mais específica. Os resultados são exibidos no
-console e também exportados para ``resultados_scraping.xlsx``.
+console e também exportados para ``resultado_scraping.xlsx``.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from colunas_utils import encontrar_colunas_necessarias, montar_frase_busca
 NOME_ARQUIVO = sys.argv[1] if len(sys.argv) > 1 else "66.xlsx"
 
 # Nome do arquivo de saída contendo os links encontrados.
-ARQUIVO_RESULTADO = "resultados_scraping.xlsx"
+ARQUIVO_RESULTADO = "resultado_scraping.xlsx"
 
 
 def montar_dataframe_buscas(
