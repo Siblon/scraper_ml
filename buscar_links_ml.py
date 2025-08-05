@@ -173,9 +173,14 @@ def buscar_link(produto: str) -> str | None:
     return links[0] if links else None
 
 def buscar_links_para_itens(
-    df: pd.DataFrame, delay_range: tuple[float, float] = (5, 12)
+    df: pd.DataFrame, delay_range: tuple[float, float] = (3, 7)
 ) -> pd.DataFrame:
-    """Busca links para todos os itens do ``DataFrame`` fornecido usando Selenium."""
+    """Busca links no Mercado Livre usando Selenium.
+
+    Para cada descrição do ``DataFrame`` abre a página de busca em um navegador
+    headless, aguarda o carregamento dos produtos e captura o primeiro link de
+    item válido. Em caso de falha, salva o HTML de depuração.
+    """
 
     if "Descrição do Item" not in df.columns:
         raise KeyError("DataFrame must contain 'Descrição do Item' column")
@@ -189,6 +194,8 @@ def buscar_links_para_itens(
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument(f"--user-agent={random.choice(USER_AGENTS)}")
 
     driver = webdriver.Chrome(options=options)
 
@@ -199,6 +206,7 @@ def buscar_links_para_itens(
         "/privacidade",
         "/seguranca",
     )
+    padrao_produto = re.compile(r"(?:/item/|/p/)", re.IGNORECASE)
 
     try:
         for indice, descricao in enumerate(
@@ -233,18 +241,37 @@ def buscar_links_para_itens(
                     if any(inv in href for inv in links_invalidos):
                         tqdm_write(f"🚫 Link ignorado: {href}")
                         continue
+                    if not padrao_produto.search(href):
+                        tqdm_write(f"🚫 Link ignorado: {href}")
+                        continue
                     link_saida = href
                     status = "Sucesso"
-                    tqdm_write(f"✅ Produto encontrado: {href}")
+                    tqdm_write(f"✅ Link encontrado: {href}")
                     break
+                if status != "Sucesso":
+                    tqdm_write(
+                        f"⚠️ Nenhum resultado encontrado para: \"{termo_busca}\""
+                    )
+                    nome_debug = f"debug_{slug}.html"
+                    with open(nome_debug, "w", encoding="utf-8") as f:
+                        f.write(driver.page_source)
+                    tqdm_write(f"📝 HTML salvo em: {nome_debug}")
             except TimeoutException:
                 status = "Timeout"
                 tqdm_write("⌛ Timeout ao carregar resultados")
+                nome_debug = f"debug_{slug}.html"
+                with open(nome_debug, "w", encoding="utf-8") as f:
+                    f.write(driver.page_source)
+                tqdm_write(f"📝 HTML salvo em: {nome_debug}")
             except Exception as exc:
                 status = f"Erro: {type(exc).__name__}"
                 tqdm_write(
                     f"❌ Erro ao buscar: \"{termo_busca}\" - {exc}"
                 )
+                nome_debug = f"debug_{slug}.html"
+                with open(nome_debug, "w", encoding="utf-8") as f:
+                    f.write(driver.page_source)
+                tqdm_write(f"📝 HTML salvo em: {nome_debug}")
 
             duracao = time.time() - inicio
             tqdm_write(f"⏱️ Tempo: {duracao:.2f}s")
