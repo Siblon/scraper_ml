@@ -21,7 +21,16 @@ def normalizar(texto):
 
 
 def inferir_coluna_por_conteudo(serie, n=5) -> Optional[str]:
-    """Tenta inferir o tipo da coluna analisando as primeiras N linhas."""
+    """Tenta inferir o tipo da coluna analisando as primeiras N linhas.
+
+    As heurísticas levam em consideração:
+
+    - ``produto``: presença de marcas conhecidas em texto;
+    - ``tamanho``: inteiros entre 15 e 50;
+    - ``quantidade``: inteiros entre 1 e 100;
+    - ``preco_unitario/preco_total``: números decimais maiores que 20.
+    """
+
     amostra = serie.dropna().astype(str).head(n).str.lower()
     if amostra.empty:
         return None
@@ -37,17 +46,23 @@ def inferir_coluna_por_conteudo(serie, n=5) -> Optional[str]:
     )
     numeros = pd.to_numeric(numeros, errors="coerce")
     if numeros.notna().all():
-        if numeros.max() <= 60:
+        if numeros.between(15, 50).all() and (numeros % 1 == 0).all():
             return "tamanho"
-        if (numeros % 1 == 0).all():
+        if (numeros % 1 == 0).all() and numeros.between(1, 100).all():
             return "quantidade"
-        return "preco_unitario"
+        if numeros.min() >= 20 and (numeros % 1 != 0).any():
+            return "preco_unitario"
 
     return None
 
 
 def encontrar_colunas_necessarias(caminho_arquivo, sinonimos, linhas_amostra=5):
     """Lê a planilha e identifica dinamicamente as colunas necessárias.
+
+    A função tenta utilizar primeiro os cabeçalhos e seus sinônimos e,
+    caso não seja possível, infere o tipo da coluna pelos primeiros
+    valores. Colunas detectadas são renomeadas para os nomes padrão e o
+    DataFrame retornado já possui essas colunas padronizadas.
 
     Retorna o DataFrame da aba encontrada, o nome da aba e um dicionário
     com as colunas mapeadas para produto, modelo, tamanho, quantidade,
@@ -59,6 +74,7 @@ def encontrar_colunas_necessarias(caminho_arquivo, sinonimos, linhas_amostra=5):
         colunas_normalizadas = [normalizar(c) for c in df.columns]
 
         colunas_encontradas = {}
+        colunas_originais = {}
         colunas_sugeridas = {}
         colunas_restantes = set(df.columns)
 
@@ -76,7 +92,9 @@ def encontrar_colunas_necessarias(caminho_arquivo, sinonimos, linhas_amostra=5):
             if scores:
                 melhor_coluna, melhor_score = max(scores, key=lambda x: x[1])
                 if melhor_score >= 0.8:
-                    colunas_encontradas[chave] = melhor_coluna
+                    df.rename(columns={melhor_coluna: chave}, inplace=True)
+                    colunas_encontradas[chave] = chave
+                    colunas_originais[chave] = melhor_coluna
                     colunas_restantes.discard(melhor_coluna)
                 else:
                     colunas_encontradas[chave] = None
@@ -97,16 +115,16 @@ def encontrar_colunas_necessarias(caminho_arquivo, sinonimos, linhas_amostra=5):
                 ):
                     destino = "preco_total"
                 if colunas_encontradas.get(destino) is None:
-                    colunas_encontradas[destino] = coluna
-                    if coluna.lower().startswith("unnamed"):
-                        df.rename(columns={coluna: destino}, inplace=True)
-                        colunas_encontradas[destino] = destino
+                    df.rename(columns={coluna: destino}, inplace=True)
+                    colunas_encontradas[destino] = destino
+                    colunas_originais[destino] = coluna
 
         print(f"\n📄 Analisando aba '{aba}':")
         for chave in sinonimos.keys():
             coluna = colunas_encontradas.get(chave)
             if coluna:
-                print(f"  ✅ Coluna '{chave}' detectada: '{coluna}'")
+                original = colunas_originais.get(chave, coluna)
+                print(f"  ✅ Coluna '{chave}' detectada: '{original}'")
             else:
                 sugestoes = colunas_sugeridas.get(chave, [])
                 if sugestoes:
