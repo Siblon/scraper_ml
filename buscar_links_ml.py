@@ -8,6 +8,7 @@ tratamento de erros e exportação de resultados.  Ele é utilizado pelo script
 
 from __future__ import annotations
 
+import random
 import time
 
 import pandas as pd
@@ -18,13 +19,17 @@ from colunas_utils import encontrar_colunas_necessarias
 
 try:  # tqdm é opcional; se não estiver instalado, seguimos sem a barra de progresso
     from tqdm import tqdm
+    tqdm_write = tqdm.write
 except Exception:  # pragma: no cover - fallback simples
     def tqdm(iterable, *_, **__):
         return iterable
 
+    def tqdm_write(msg):  # type: ignore[unused-arg]
+        print(msg)
+
 
 NOME_ARQUIVO = "66.xlsx"
-RESULTADO_ARQUIVO = "resultados_scraping.xlsx"
+RESULTADO_ARQUIVO = "resultado_scraping.xlsx"
 
 
 def buscar_links_mercado_livre(consulta: str, limite: int = 1) -> list[str]:
@@ -32,8 +37,11 @@ def buscar_links_mercado_livre(consulta: str, limite: int = 1) -> list[str]:
 
     url = f"https://lista.mercadolivre.com.br/{consulta}"
     headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(url, headers=headers, timeout=10)
-    response.raise_for_status()
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+    except requests.RequestException:
+        return []
 
     soup = BeautifulSoup(response.text, "html.parser")
     links: list[str] = []
@@ -64,7 +72,9 @@ def buscar_link(produto: str) -> str:
     return links[0] if links else ""
 
 
-def buscar_links_para_itens(df: pd.DataFrame, delay: float = 1.0) -> pd.DataFrame:
+def buscar_links_para_itens(
+    df: pd.DataFrame, delay_range: tuple[float, float] = (5, 12)
+) -> pd.DataFrame:
     """Busca o primeiro link para cada item com logs e resumo final.
 
     Parameters
@@ -72,8 +82,9 @@ def buscar_links_para_itens(df: pd.DataFrame, delay: float = 1.0) -> pd.DataFram
     df : pd.DataFrame
         ``DataFrame`` contendo a coluna ``Descrição do Item`` com os termos
         a serem pesquisados.
-    delay : float, optional
-        Pausa em segundos entre uma busca e outra para evitar bloqueios.
+    delay_range : tuple[float, float], optional
+        Intervalo de espera aleatório, em segundos, entre as requisições
+        para evitar bloqueios (padrão ``(5, 12)``).
 
     Returns
     -------
@@ -92,7 +103,7 @@ def buscar_links_para_itens(df: pd.DataFrame, delay: float = 1.0) -> pd.DataFram
 
     for indice, descricao in enumerate(tqdm(itens, total=total, desc="Progresso"), start=1):
         termo_busca = str(descricao).strip()
-        tqdm.write(f"Buscando item {indice} de {total}: \"{termo_busca}\"")
+        tqdm_write(f"🔎 [{indice}/{total}] Buscando: \"{termo_busca}\"")
         inicio = time.time()
         link = ""
         status = "Erro"
@@ -100,21 +111,21 @@ def buscar_links_para_itens(df: pd.DataFrame, delay: float = 1.0) -> pd.DataFram
         try:
             link = buscar_link(termo_busca)
             if link:
-                tqdm.write(f"✅ Link encontrado: {link}")
+                tqdm_write(f"✅ Link encontrado: {link}")
                 status = "Sucesso"
             else:
                 msg_erro = "Nenhum link encontrado"
                 falhas.append(termo_busca)
-                tqdm.write("⚠️ Nenhum link encontrado")
+                tqdm_write("⚠️ Nenhum link encontrado")
         except Exception as exc:  # pragma: no cover - interação com rede
             msg_erro = str(exc)
             falhas.append(termo_busca)
-            tqdm.write(
+            tqdm_write(
                 f"❌ Erro ao buscar: \"{termo_busca}\" - {type(exc).__name__}"
             )
         duracao = time.time() - inicio
-        tqdm.write(f"⏱️ Tempo: {duracao:.2f}s")
-        tqdm.write("---")
+        tqdm_write(f"⏱️ Tempo: {duracao:.2f}s")
+        tqdm_write("---")
 
         resultados.append(
             {
@@ -124,7 +135,8 @@ def buscar_links_para_itens(df: pd.DataFrame, delay: float = 1.0) -> pd.DataFram
                 "Mensagem de erro": msg_erro,
             }
         )
-        time.sleep(delay)
+        espera = random.uniform(*delay_range)
+        time.sleep(espera)
 
     sucesso = total - len(falhas)
     print("\nResumo:")
