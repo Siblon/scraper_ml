@@ -7,7 +7,12 @@ import time
 import random
 import sys
 
-from colunas_utils import encontrar_colunas_necessarias, preprocessar_planilha
+from colunas_utils import (
+    encontrar_colunas_necessarias,
+    preprocessar_planilha,
+    identificar_colunas_busca,
+    montar_frase_busca,
+)
 
 # ============ CONFIGURAÇÕES ============
 
@@ -71,6 +76,9 @@ df, aba, colunas = encontrar_colunas_necessarias(NOME_ARQUIVO, COLUNAS_SINONIMOS
 df = preprocessar_planilha(df)
 print(f"✅ Colunas detectadas: {colunas}")
 
+# Identifica colunas relevantes para a frase de busca
+coluna_principal, colunas_opcionais, colunas_ignoradas = identificar_colunas_busca(df)
+
 if DEBUG:
     print("🧪 Modo DEBUG ativo. Primeiros 3 itens:")
     print(df.head(3))
@@ -84,27 +92,16 @@ try:
         if total_processados >= LIMITE_PRODUTOS:
             break
 
-        faltando = []
-        for chave in ("produto", "tamanho"):
-            coluna = colunas.get(chave)
-            valor = row.get(coluna) if coluna else None
-            if coluna is None or pd.isna(valor) or str(valor).strip() == "":
-                faltando.append(chave)
-        if faltando:
-            print(f"⚠️ Linha {index} ignorada: dados ausentes em {', '.join(faltando)}.")
+        valor_principal = row.get(coluna_principal)
+        if pd.isna(valor_principal) or str(valor_principal).strip() == "":
+            print(f"⚠️ Linha {index} ignorada: dados ausentes em {coluna_principal}.")
             continue
 
-        nome_produto = str(row[colunas["produto"]])
-        modelo_col = colunas.get("modelo")
-        modelo_produto = (
-            str(row[modelo_col])
-            if modelo_col and not pd.isna(row.get(modelo_col))
-            else ""
-        )
-        tamanho = row[colunas["tamanho"]]
-        tipo = classificar_tipo(tamanho)
-
-        termo_busca = f"{nome_produto} {modelo_produto} {tipo}"
+        termo_busca = montar_frase_busca(row, coluna_principal, colunas_opcionais)
+        tamanho = row.get("tamanho") if "tamanho" in df.columns else None
+        tipo = classificar_tipo(tamanho) if tamanho is not None else ""
+        if tipo:
+            termo_busca = f"{termo_busca} {tipo}".strip()
         print(f"🔎 Buscando: {termo_busca}")
 
         try:
@@ -118,8 +115,8 @@ try:
 
         resultados.append(
             {
-                "Nome do Produto": nome_produto,
-                "Modelo": modelo_produto,
+                "Nome do Produto": row[coluna_principal],
+                "Modelo": row.get("modelo", ""),
                 "Tamanho": tamanho,
                 "Tipo": tipo,
                 "Preço Médio": media,

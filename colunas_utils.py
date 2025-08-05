@@ -52,6 +52,27 @@ def normalizar(texto):
     return texto
 
 
+def normalizar_string(texto: str) -> str:
+    """Normaliza strings para comparações resilientes.
+
+    A função remove acentos, converte para minúsculas e elimina
+    caracteres não alfanuméricos. É um wrapper amigável em torno da
+    função :func:`normalizar` existente.
+
+    Parameters
+    ----------
+    texto : str
+        Texto de entrada que pode conter acentos ou pontuação.
+
+    Returns
+    -------
+    str
+        Versão sanitizada do texto.
+    """
+
+    return normalizar(texto)
+
+
 def detectar_linha_cabecalho(df: pd.DataFrame, sinonimos) -> int:
     """Detecta automaticamente a linha que contém os nomes das colunas.
 
@@ -264,3 +285,102 @@ def encontrar_colunas_necessarias(caminho_arquivo, sinonimos, linhas_amostra=5):
         )
 
     raise ValueError("❌ Colunas obrigatórias não encontradas!")
+
+
+def identificar_colunas_busca(df: pd.DataFrame):
+    """Identifica colunas relevantes para montagem da frase de busca.
+
+    A função procura por uma coluna principal de descrição e por colunas
+    opcionais que complementam a busca. Também detecta colunas
+    irrelevantes que devem ser ignoradas. Os nomes das colunas são
+    comparados de forma case-insensitive e sem acentuação.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame com os dados da planilha original.
+
+    Returns
+    -------
+    tuple
+        (coluna_principal, colunas_opcionais, colunas_ignoradas)
+    """
+
+    obrigatorias = ["descrição", "produto", "nome", "item"]
+    opcionais = ["modelo", "tamanho", "categoria", "subcategoria"]
+    irrelevantes = [
+        "código ml",
+        "sku",
+        "quantidade",
+        "grade",
+        "endereço",
+        "vms",
+        "seller",
+        "valor",
+        "total",
+        "vertical",
+        "type seller",
+    ]
+
+    # Normaliza nomes das colunas
+    colunas_norm = {col: normalizar_string(col) for col in df.columns}
+
+    # Identifica coluna principal
+    obrigatorias_norm = [normalizar_string(k) for k in obrigatorias]
+    coluna_principal = None
+    for original, norm in colunas_norm.items():
+        if any(chave in norm for chave in obrigatorias_norm):
+            coluna_principal = original
+            break
+    if coluna_principal is None:
+        raise ValueError("❌ Coluna de descrição obrigatória não encontrada")
+
+    # Colunas opcionais
+    opcionais_norm = [normalizar_string(k) for k in opcionais]
+    colunas_opcionais = []
+    for original, norm in colunas_norm.items():
+        if original == coluna_principal:
+            continue
+        if any(chave in norm for chave in opcionais_norm):
+            colunas_opcionais.append(original)
+
+    # Colunas irrelevantes
+    irrelevantes_norm = [normalizar_string(k) for k in irrelevantes]
+    colunas_ignoradas = []
+    for original, norm in colunas_norm.items():
+        if any(chave in norm for chave in irrelevantes_norm):
+            colunas_ignoradas.append(original)
+
+    extras_msg = ", ".join(colunas_opcionais) if colunas_opcionais else "nenhuma"
+    ignoradas_msg = ", ".join(colunas_ignoradas) if colunas_ignoradas else "nenhuma"
+    print(f"🔍 Coluna principal identificada: {coluna_principal}")
+    print(f"➕ Colunas extras incluídas na frase de busca: {extras_msg}")
+    print(f"🚫 Colunas ignoradas: {ignoradas_msg}")
+
+    return coluna_principal, colunas_opcionais, colunas_ignoradas
+
+
+def montar_frase_busca(row: pd.Series, coluna_principal: str, colunas_opcionais):
+    """Constrói a frase de busca a partir das colunas relevantes.
+
+    Parameters
+    ----------
+    row : pd.Series
+        Linha da planilha com os dados do produto.
+    coluna_principal : str
+        Nome da coluna de descrição do item.
+    colunas_opcionais : list
+        Lista de colunas adicionais a serem consideradas.
+
+    Returns
+    -------
+    str
+        Frase pronta para a busca.
+    """
+
+    partes = [str(row.get(coluna_principal, "")).strip()]
+    for coluna in colunas_opcionais:
+        valor = row.get(coluna)
+        if pd.notna(valor) and str(valor).strip():
+            partes.append(str(valor).strip())
+    return " ".join(partes).strip()
