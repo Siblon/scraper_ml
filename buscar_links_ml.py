@@ -1,6 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
+import time
 
 from colunas_utils import encontrar_colunas_necessarias
 
@@ -47,15 +48,47 @@ def buscar_links_para_itens(df: pd.DataFrame) -> pd.DataFrame:
         raise KeyError("DataFrame must contain 'Descrição do Item' column")
 
     resultados: list[dict[str, str]] = []
-    for descricao in df["Descrição do Item"].dropna().unique():
+    itens = df["Descrição do Item"].dropna().unique()
+    total = len(itens)
+    falhas: list[str] = []
+
+    for indice, descricao in enumerate(itens, start=1):
         termo_busca = str(descricao).strip()
-        links = buscar_links_mercado_livre(termo_busca)
+        print(f"🔍 Buscando item {indice} de {total}: \"{termo_busca}\"")
+        inicio = time.time()
+        try:
+            links = buscar_links_mercado_livre(termo_busca)
+            if links:
+                print(f"✅ Link encontrado: {links[0]}")
+            else:
+                print("⚠️ Nenhum link encontrado")
+        except Exception as exc:  # pragma: no cover - interação com rede
+            print(
+                f"❌ Erro ao buscar: \"{termo_busca}\" - {type(exc).__name__}"
+            )
+            falhas.append(termo_busca)
+            links = []
+        duracao = time.time() - inicio
+        print(f"⏱️ Tempo de busca: {duracao:.2f} segundos")
+        print("---")
+
         resultado = {"Descrição do Item": termo_busca}
         for i in range(3):
             resultado[f"Link {i + 1}"] = links[i] if i < len(links) else ""
         resultados.append(resultado)
 
-    return pd.DataFrame(resultados, columns=["Descrição do Item", "Link 1", "Link 2", "Link 3"])
+    sucesso = total - len(falhas)
+    print(
+        f"\nResumo: {sucesso} produtos processados com sucesso e {len(falhas)} falharam."
+    )
+    if falhas:
+        print("Itens com falha:")
+        for item in falhas:
+            print(f"- {item}")
+
+    return pd.DataFrame(
+        resultados, columns=["Descrição do Item", "Link 1", "Link 2", "Link 3"]
+    )
 
 
 def main():
