@@ -7,7 +7,7 @@ import time
 import random
 import sys
 
-from colunas_utils import encontrar_colunas_necessarias
+from colunas_utils import encontrar_colunas_necessarias, preprocessar_planilha
 
 # ============ CONFIGURAÇÕES ============
 
@@ -68,6 +68,7 @@ def classificar_tipo(tamanho):
 
 print("🔍 Lendo planilha...")
 df, aba, colunas = encontrar_colunas_necessarias(NOME_ARQUIVO, COLUNAS_SINONIMOS)
+df = preprocessar_planilha(df)
 print(f"✅ Colunas detectadas: {colunas}")
 
 if DEBUG:
