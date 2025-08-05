@@ -18,9 +18,11 @@ from colunas_utils import (
 
 NOME_ARQUIVO = "66.xlsx"
 COLUNAS_SINONIMOS = {
-    "produto": ["descricao do item", "nome", "produto", "descricao"],
+    "produto": ["descricao do item", "nome", "produto", "descricao", "item"],
     "modelo": ["modelo", "cod", "codigo", "referencia"],
     "tamanho": ["tamanho", "tam", "numero"],
+    "categoria": ["categoria"],
+    "subcategoria": ["subcategoria", "sub categoria"],
     "quantidade": ["quantidade", "qtd", "qtde"],
     "preco_unitario": ["preco unitario", "valor unitario", "preco"],
     "preco_total": ["preco total", "valor total", "total"]
