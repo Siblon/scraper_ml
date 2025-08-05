@@ -7,26 +7,11 @@ import time
 import random
 import sys
 
-from colunas_utils import (
-    encontrar_colunas_necessarias,
-    preprocessar_planilha,
-    identificar_colunas_busca,
-    montar_frase_busca,
-)
+from colunas_utils import encontrar_colunas_necessarias, montar_frase_busca
 
 # ============ CONFIGURAÇÕES ============
 
 NOME_ARQUIVO = "66.xlsx"
-COLUNAS_SINONIMOS = {
-    "produto": ["descricao do item", "nome", "produto", "descricao", "item"],
-    "modelo": ["modelo", "cod", "codigo", "referencia"],
-    "tamanho": ["tamanho", "tam", "numero"],
-    "categoria": ["categoria"],
-    "subcategoria": ["subcategoria", "sub categoria"],
-    "quantidade": ["quantidade", "qtd", "qtde"],
-    "preco_unitario": ["preco unitario", "valor unitario", "preco"],
-    "preco_total": ["preco total", "valor total", "total"]
-}
 LIMITE_PRODUTOS = 50
 DELAY_MIN = 5
 DELAY_MAX = 10
@@ -74,12 +59,9 @@ def classificar_tipo(tamanho):
 # ============ EXECUÇÃO ============
 
 print("🔍 Lendo planilha...")
-df, aba, colunas = encontrar_colunas_necessarias(NOME_ARQUIVO, COLUNAS_SINONIMOS)
-df = preprocessar_planilha(df)
-print(f"✅ Colunas detectadas: {colunas}")
-
-# Identifica colunas relevantes para a frase de busca
-coluna_principal, colunas_opcionais, colunas_ignoradas = identificar_colunas_busca(df)
+df, aba, info_colunas = encontrar_colunas_necessarias(NOME_ARQUIVO)
+coluna_principal = info_colunas["principal"]
+colunas_opcionais = info_colunas["extras"]
 
 if DEBUG:
     print("🧪 Modo DEBUG ativo. Primeiros 3 itens:")

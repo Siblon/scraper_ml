@@ -1,7 +1,6 @@
 import pandas as pd
 import unicodedata
 import re
-from difflib import SequenceMatcher
 from typing import Optional
 
 
@@ -217,115 +216,119 @@ def inferir_seguro(df: pd.DataFrame, coluna, n=5) -> Optional[str]:
     return inferir_coluna_por_conteudo(serie, n=n, nome_coluna=nome)
 
 
-def encontrar_colunas_necessarias(caminho_arquivo, sinonimos, linhas_amostra=5):
-    """Lê a planilha e identifica dinamicamente as colunas necessárias.
+def encontrar_colunas_necessarias(caminho_arquivo: str):
+    """Carrega a planilha e detecta as colunas relevantes.
 
-    A função detecta automaticamente a linha que contém os nomes das
-    colunas, remove as linhas acima dela e aplica a sanitização dos
-    valores que possuam múltiplas entradas separadas por ``|``. Em
-    seguida, tenta utilizar os cabeçalhos e seus sinônimos e, caso não
-    seja possível, infere o tipo da coluna pelos primeiros valores.
-    Colunas detectadas são renomeadas para os nomes padrão e o DataFrame
-    retornado já possui essas colunas padronizadas.
+    A função procura por uma coluna de descrição do produto aceitando
+    variações como ``produto``, ``item`` ou ``descrição``. Colunas
+    opcionais (``modelo``, ``tamanho``, ``categoria`` e ``subcategoria``)
+    são utilizadas se estiverem presentes, enquanto colunas irrelevantes
+    como ``sku`` ou ``quantidade`` são ignoradas. Todas as análises são
+    realizadas de maneira case-insensitive e sem acentuação para garantir
+    robustez contra planilhas com nomes diferentes.
 
-    Retorna o DataFrame da aba encontrada, o nome da aba e um dicionário
-    com as colunas mapeadas para produto e, quando disponíveis, modelo,
-    tamanho, categoria, subcategoria, quantidade, preço unitário e total.
+    Parameters
+    ----------
+    caminho_arquivo : str
+        Caminho para o arquivo Excel a ser analisado.
+
+    Returns
+    -------
+    tuple
+        ``(df, aba, info)`` onde ``df`` é o DataFrame sanitizado da aba
+        analisada, ``aba`` é o nome da aba utilizada e ``info`` é um
+        dicionário contendo:
+
+        ``principal`` : nome da coluna de descrição do produto
+        ``extras`` : lista de colunas opcionais aproveitadas
+        ``ignoradas`` : lista de colunas irrelevantes identificadas
+
+    Raises
+    ------
+    ValueError
+        Se nenhuma coluna de descrição do produto for encontrada em
+        nenhuma aba do arquivo.
     """
+
+    obrigatorias = [
+        "produto",
+        "item",
+        "nome",
+        "descrição",
+        "descrição do item",
+    ]
+    opcionais = ["modelo", "tamanho", "categoria", "subcategoria"]
+    irrelevantes = [
+        "quantidade",
+        "qtd",
+        "qtde",
+        "código ml",
+        "codigo ml",
+        "sku",
+        "valor unit",
+        "valor unitario",
+        "preço unitario",
+        "preco unitario",
+        "valor total",
+        "preço total",
+        "preco total",
+        "valor",
+        "total",
+        "vertical",
+        "type seller",
+        "endereço",
+        "grade",
+    ]
+
+    # sinônimos mínimos para detecção da linha de cabeçalho
+    sinonimos_cabecalho = {"produto": obrigatorias}
+    for opc in opcionais:
+        sinonimos_cabecalho[opc] = [opc]
+
     xls = pd.ExcelFile(caminho_arquivo)
     for aba in xls.sheet_names:
         df_raw = pd.read_excel(xls, sheet_name=aba, header=None)
-        linha_cabecalho = detectar_linha_cabecalho(df_raw, sinonimos)
+        linha_cabecalho = detectar_linha_cabecalho(df_raw, sinonimos_cabecalho)
         df = df_raw.iloc[linha_cabecalho + 1 :].copy()
-        df.columns = df_raw.iloc[linha_cabecalho].fillna("").astype(str)
-        df.columns = df.columns.str.strip()
+        df.columns = df_raw.iloc[linha_cabecalho].fillna("").astype(str).str.strip()
         df = preprocessar_planilha(df)
-        colunas_normalizadas = [normalizar(c) for c in df.columns]
 
-        colunas_encontradas = {}
-        colunas_originais = {}
-        colunas_sugeridas = {}
-        colunas_restantes = set(df.columns)
-        irrelevantes = {
-            "codigoml",
-            "sku",
-            "quantidade",
-            "endereco",
-            "grade",
-            "seller",
-            "valor",
-            "total",
-            "vertical",
-            "typeseller",
-        }
+        colunas_norm = {col: normalizar_string(col) for col in df.columns}
 
-        for chave, nomes in sinonimos.items():
-            scores = []
-            for coluna_original, coluna_norm in zip(df.columns, colunas_normalizadas):
-                if coluna_original.lower().startswith("unnamed"):
-                    continue
-                score = max(
-                    SequenceMatcher(None, coluna_norm, normalizar(nome)).ratio()
-                    for nome in nomes
-                )
-                scores.append((coluna_original, score))
+        # coluna principal
+        obrig_norm = [normalizar_string(c) for c in obrigatorias]
+        principal = None
+        for original, norm in colunas_norm.items():
+            if any(chave in norm for chave in obrig_norm):
+                principal = original
+                break
+        if principal is None:
+            continue
 
-            if scores:
-                melhor_coluna, melhor_score = max(scores, key=lambda x: x[1])
-                if melhor_score >= 0.8:
-                    df.rename(columns={melhor_coluna: chave}, inplace=True)
-                    colunas_encontradas[chave] = chave
-                    colunas_originais[chave] = melhor_coluna
-                    colunas_restantes.discard(melhor_coluna)
-                else:
-                    colunas_encontradas[chave] = None
-                    colunas_sugeridas[chave] = sorted(
-                        scores, key=lambda x: x[1], reverse=True
-                    )[:3]
-            else:
-                colunas_encontradas[chave] = None
-
-        for coluna in list(colunas_restantes):
-            if normalizar(coluna) in irrelevantes:
+        # opcionais
+        opcionais_norm = [normalizar_string(c) for c in opcionais]
+        extras = []
+        for original, norm in colunas_norm.items():
+            if original == principal:
                 continue
-            guess = inferir_seguro(df, coluna, n=linhas_amostra)
-            if guess:
-                destino = guess
-                if (
-                    guess == "preco_unitario"
-                    and colunas_encontradas.get("preco_unitario") is not None
-                    and colunas_encontradas.get("preco_total") is None
-                ):
-                    destino = "preco_total"
-                if colunas_encontradas.get(destino) is None:
-                    df.rename(columns={coluna: destino}, inplace=True)
-                    colunas_encontradas[destino] = destino
-                    colunas_originais[destino] = coluna
+            if any(chave in norm for chave in opcionais_norm):
+                extras.append(original)
 
-        print(f"\n📄 Analisando aba '{aba}':")
-        for chave in sinonimos.keys():
-            coluna = colunas_encontradas.get(chave)
-            if coluna:
-                original = colunas_originais.get(chave, coluna)
-                print(f"  ✅ Coluna '{chave}' detectada: '{original}'")
-            else:
-                sugestoes = colunas_sugeridas.get(chave, [])
-                if sugestoes:
-                    sugestoes_str = ", ".join(
-                        f"{col} ({score:.2f})" for col, score in sugestoes
-                    )
-                    print(
-                        f"  ⚠️ Coluna '{chave}' não encontrada. Sugestões: {sugestoes_str}"
-                    )
-                else:
-                    print(f"  ⚠️ Coluna '{chave}' não encontrada.")
+        # irrelevantes
+        irrelevantes_norm = [normalizar_string(c) for c in irrelevantes]
+        ignoradas = []
+        for original, norm in colunas_norm.items():
+            if any(chave in norm for chave in irrelevantes_norm):
+                ignoradas.append(original)
 
-        if colunas_encontradas.get("produto"):
-            return df, aba, colunas_encontradas
+        extras_msg = ", ".join(extras) if extras else "nenhuma"
+        ignoradas_msg = ", ".join(ignoradas) if ignoradas else "nenhuma"
+        print(f"✔ Coluna principal identificada: {principal}")
+        print(f"➕ Colunas extras incluídas: {extras_msg}")
+        print(f"🚫 Colunas ignoradas: {ignoradas_msg}")
 
-        print(
-            "  ⚠️ Coluna obrigatória 'produto' não encontrada nesta aba."
-        )
+        info = {"principal": principal, "extras": extras, "ignoradas": ignoradas}
+        return df, aba, info
 
     raise ValueError("Nenhuma coluna de descrição do produto foi encontrada.")
 
