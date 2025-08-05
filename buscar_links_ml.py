@@ -8,21 +8,9 @@ NOME_ARQUIVO = "66.xlsx"
 RESULTADO_ARQUIVO = "resultado_links.xlsx"
 
 
-def buscar_links(consulta: str, limite: int = 3) -> list[str]:
-    """Busca os primeiros links de resultados no Mercado Livre.
+def buscar_links_mercado_livre(consulta: str, limite: int = 3) -> list[str]:
+    """Retorna os primeiros ``limite`` links de uma busca no Mercado Livre."""
 
-    Parameters
-    ----------
-    consulta : str
-        Termo utilizado na busca.
-    limite : int, optional
-        Número máximo de links retornados, por padrão 3.
-
-    Returns
-    -------
-    list[str]
-        Lista com os links dos resultados encontrados.
-    """
     url = f"https://lista.mercadolivre.com.br/{consulta}"
     headers = {"User-Agent": "Mozilla/5.0"}
     response = requests.get(url, headers=headers, timeout=10)
@@ -59,12 +47,12 @@ def buscar_links_para_itens(df: pd.DataFrame) -> pd.DataFrame:
         raise KeyError("DataFrame must contain 'Descrição do Item' column")
 
     resultados: list[dict[str, str]] = []
-    for descricao in df["Descrição do Item"].dropna():
+    for descricao in df["Descrição do Item"].dropna().unique():
         termo_busca = str(descricao).strip()
-        links = buscar_links(termo_busca)
+        links = buscar_links_mercado_livre(termo_busca)
         resultado = {"Descrição do Item": termo_busca}
         for i in range(3):
-            resultado[f"Link {i+1}"] = links[i] if i < len(links) else ""
+            resultado[f"Link {i + 1}"] = links[i] if i < len(links) else ""
         resultados.append(resultado)
 
     return pd.DataFrame(resultados, columns=["Descrição do Item", "Link 1", "Link 2", "Link 3"])
