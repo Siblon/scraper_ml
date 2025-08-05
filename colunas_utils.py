@@ -5,6 +5,38 @@ from difflib import SequenceMatcher
 from typing import Optional
 
 
+def preprocessar_planilha(df: pd.DataFrame) -> pd.DataFrame:
+    """Limpa valores com múltiplas entradas separadas por ``|``.
+
+    Para cada célula do DataFrame, mantém apenas o primeiro segmento
+    antes do caractere ``|`` e remove espaços extras nas extremidades.
+
+    Examples
+    --------
+    >>> preprocessar_planilha(pd.DataFrame({"col": ["38|40|42", "Tênis | Adidas"]}))
+        col
+    0    38
+    1  Tênis
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame lido da planilha original.
+
+    Returns
+    -------
+    pd.DataFrame
+        Novo DataFrame com os valores sanitizados.
+    """
+
+    def limpar(valor):
+        if isinstance(valor, str):
+            return valor.split("|")[0].strip()
+        return valor
+
+    return df.applymap(limpar)
+
+
 def normalizar(texto):
     """Remove acentos, espaços e pontuação de um texto."""
     if not isinstance(texto, str):
@@ -81,6 +113,7 @@ def encontrar_colunas_necessarias(caminho_arquivo, sinonimos, linhas_amostra=5):
     xls = pd.ExcelFile(caminho_arquivo)
     for aba in xls.sheet_names:
         df = pd.read_excel(xls, sheet_name=aba)
+        df = preprocessar_planilha(df)
         colunas_normalizadas = [normalizar(c) for c in df.columns]
 
         colunas_encontradas = {}
