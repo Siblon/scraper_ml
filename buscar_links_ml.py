@@ -4,6 +4,8 @@ from __future__ import annotations
 import random
 import re
 import time
+import unicodedata
+
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
@@ -21,11 +23,38 @@ except Exception:
 NOME_ARQUIVO = "66.xlsx"
 RESULTADO_ARQUIVO = "resultado_scraping.xlsx"
 
-def buscar_links_mercado_livre(consulta: str, limite: int = 1, salvar_html: bool = False, caminho_html: str = "pagina_debug.html") -> list[str]:
-    termo = consulta.replace(" ", "-")
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:117.0) Gecko/20100101 Firefox/117.0",
+]
+
+
+def gerar_slug(texto: str) -> str:
+    """Converte ``texto`` em um slug simples.
+
+    Remove acentos e caracteres especiais, substitui espaços por hifens e
+    converte o resultado para minúsculas.
+    """
+
+    texto_normalizado = unicodedata.normalize("NFKD", texto)
+    texto_ascii = texto_normalizado.encode("ascii", "ignore").decode("ascii")
+    texto_limpo = re.sub(r"[^a-zA-Z0-9\s-]", "", texto_ascii)
+    texto_hifenizado = re.sub(r"\s+", "-", texto_limpo.strip())
+    texto_hifenizado = re.sub(r"-+", "-", texto_hifenizado)
+    return texto_hifenizado.lower()
+
+def buscar_links_mercado_livre(
+    consulta: str,
+    limite: int = 1,
+    salvar_html: bool = False,
+    caminho_html: str = "pagina_debug.html",
+) -> list[str]:
+    termo = gerar_slug(consulta)
     url = f"https://lista.mercadolivre.com.br/{termo}"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+        "User-Agent": random.choice(USER_AGENTS),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
         "Cache-Control": "no-cache",
@@ -35,6 +64,7 @@ def buscar_links_mercado_livre(consulta: str, limite: int = 1, salvar_html: bool
     }
 
     session = requests.Session()
+    time.sleep(random.uniform(1, 3))
     try:
         response = session.get(url, headers=headers, timeout=10, allow_redirects=True)
         if response.history:
@@ -63,8 +93,12 @@ def buscar_links_mercado_livre(consulta: str, limite: int = 1, salvar_html: bool
     links: list[str] = []
     for card in cards:
         href = card.get("href")
-        if href and "anuncio" not in href.lower():  # ignora anúncios
-            links.append(href.split("#")[0])
+        if not href or "anuncio" in href.lower():
+            continue
+        href = href.split("#")[0]
+        if "mercadolivre.com.br/privacidade" in href.lower():
+            continue
+        links.append(href)
         if len(links) >= limite:
             break
 
@@ -79,7 +113,7 @@ def buscar_links_mercado_livre(consulta: str, limite: int = 1, salvar_html: bool
     return links
 
 def buscar_link(produto: str) -> str:
-    slug = re.sub(r"[^a-z0-9-]+", "-", produto.lower()).strip("-")
+    slug = gerar_slug(produto)
     caminho = f"debug_{slug}.html"
     links = buscar_links_mercado_livre(produto, limite=1, salvar_html=True, caminho_html=caminho)
     return links[0] if links else ""
