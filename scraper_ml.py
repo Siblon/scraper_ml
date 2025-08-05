@@ -1,126 +1,79 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.common.exceptions import WebDriverException
-import pandas as pd
-import time
-import random
-import sys
+"""Fluxo completo de busca de links no Mercado Livre.
 
+Este script lê uma planilha Excel, identifica automaticamente a coluna
+principal que descreve o item e utiliza essa informação para buscar os
+primeiros links no Mercado Livre através da função
+``buscar_links_para_itens``.
+
+Caso a planilha possua uma coluna ``Modelo``, ela é adicionada ao termo de
+busca para tornar a consulta mais específica. Os resultados são exibidos no
+console e também exportados para ``resultados_busca.xlsx``.
+"""
+
+from __future__ import annotations
+
+import sys
+from typing import Optional
+
+import pandas as pd
+
+from buscar_links_ml import buscar_links_para_itens
 from colunas_utils import encontrar_colunas_necessarias, montar_frase_busca
 
-# ============ CONFIGURAÇÕES ============
 
-NOME_ARQUIVO = "66.xlsx"
-LIMITE_PRODUTOS = 50
-DELAY_MIN = 5
-DELAY_MAX = 10
-DEBUG = True
+# Nome padrão da planilha; pode ser sobrescrito via argumento de linha de
+# comando para tornar o script reutilizável com arquivos semelhantes.
+NOME_ARQUIVO = sys.argv[1] if len(sys.argv) > 1 else "66.xlsx"
 
-# ============ FUNÇÕES ============
+# Nome do arquivo de saída contendo os links encontrados.
+ARQUIVO_RESULTADO = "resultados_busca.xlsx"
 
-def configurar_driver():
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("--disable-gpu")
-    options.add_argument("user-agent=Mozilla/5.0")
-    return webdriver.Chrome(options=options)
 
-def buscar_preco(consulta):
-    driver = configurar_driver()
-    try:
-        url = f"https://lista.mercadolivre.com.br/{consulta}"
-        driver.get(url)
-        time.sleep(random.uniform(3, 5))
+def montar_dataframe_buscas(
+    df: pd.DataFrame, coluna_principal: str, coluna_modelo: Optional[str]
+) -> pd.DataFrame:
+    """Cria um ``DataFrame`` com os termos de busca.
 
-        precos_elementos = driver.find_elements(By.CSS_SELECTOR, "span.andes-money-amount__fraction")
-        precos = []
-        for p in precos_elementos:
-            try:
-                preco = float(p.text.replace(".", "").replace(",", "."))
-                precos.append(preco)
-            except:
-                continue
-        return precos
-    except WebDriverException as e:
-        print(f"❌ Erro ao buscar {consulta}: {e}")
-        return []
-    finally:
-        driver.quit()
+    Cada linha da planilha original é transformada em um termo de busca
+    combinando a coluna principal e, se disponível, a coluna ``Modelo``.
+    Linhas vazias são ignoradas.
+    """
 
-def classificar_tipo(tamanho):
-    try:
-        tam = int(tamanho)
-        return "infantil" if tam <= 28 else "adulto"
-    except:
-        return "adulto"
+    colunas_extras = [coluna_modelo] if coluna_modelo else []
 
-# ============ EXECUÇÃO ============
+    termos: list[str] = []
+    for _, row in df.iterrows():
+        termo = montar_frase_busca(row, coluna_principal, colunas_extras)
+        if termo:
+            termos.append(termo)
 
-print("🔍 Lendo planilha...")
-df, aba, info_colunas = encontrar_colunas_necessarias(NOME_ARQUIVO)
-coluna_principal = info_colunas["principal"]
-colunas_opcionais = info_colunas["extras"]
+    return pd.DataFrame({"Descrição do Item": termos})
 
-if DEBUG:
-    print("🧪 Modo DEBUG ativo. Primeiros 3 itens:")
-    print(df.head(3))
-    sys.exit()
 
-resultados = []
-total_processados = 0
+def main() -> None:
+    """Executa o fluxo de leitura, busca e exportação dos resultados."""
 
-try:
-    for index, row in df.iterrows():
-        if total_processados >= LIMITE_PRODUTOS:
-            break
+    print("🔍 Lendo planilha...")
+    df, _, info_colunas = encontrar_colunas_necessarias(NOME_ARQUIVO)
+    coluna_principal = info_colunas["principal"]
 
-        valor_principal = row.get(coluna_principal)
-        if pd.isna(valor_principal) or str(valor_principal).strip() == "":
-            print(f"⚠️ Linha {index} ignorada: dados ausentes em {coluna_principal}.")
-            continue
+    # Verifica se existe uma coluna "Modelo" entre as colunas extras
+    coluna_modelo = next(
+        (c for c in info_colunas["extras"] if c.lower() == "modelo"), None
+    )
 
-        termo_busca = montar_frase_busca(row, coluna_principal, colunas_opcionais)
-        tamanho = row.get("tamanho") if "tamanho" in df.columns else None
-        tipo = classificar_tipo(tamanho) if tamanho is not None else ""
-        if tipo:
-            termo_busca = f"{termo_busca} {tipo}".strip()
-        print(f"🔎 Buscando: {termo_busca}")
+    df_busca = montar_dataframe_buscas(df, coluna_principal, coluna_modelo)
 
-        try:
-            precos = buscar_preco(termo_busca)
-            media = round(sum(precos) / len(precos), 2) if precos else None
-            qtd_resultados = len(precos)
-        except Exception as e:
-            print(f"❌ Erro ao buscar: {e}")
-            media = None
-            qtd_resultados = "Erro"
+    print("🔗 Buscando links no Mercado Livre...")
+    resultado_df = buscar_links_para_itens(df_busca)
 
-        resultados.append(
-            {
-                "Nome do Produto": row[coluna_principal],
-                "Modelo": row.get("modelo", ""),
-                "Tamanho": tamanho,
-                "Tipo": tipo,
-                "Preço Médio": media,
-                "Qtd Resultados": qtd_resultados,
-            }
-        )
+    print("\n📄 Primeiros resultados:")
+    print(resultado_df.head())
 
-        total_processados += 1
-        delay = random.uniform(DELAY_MIN, DELAY_MAX)
-        print(f"✅ Processados: {total_processados} de {LIMITE_PRODUTOS}")
-        print(f"⏱️ Aguardando {round(delay, 2)} segundos...\n")
-        time.sleep(delay)
+    resultado_df.to_excel(ARQUIVO_RESULTADO, index=False)
+    print(f"\n✅ Resultados salvos em: {ARQUIVO_RESULTADO}")
 
-except KeyboardInterrupt:
-    print("🚨 Interrupção manual detectada. Salvando resultados parciais...")
 
-finally:
-    resultado_df = pd.DataFrame(resultados)
-    arquivo_saida = f"resultado_precos_{int(time.time())}.xlsx"
-    resultado_df.to_excel(arquivo_saida, index=False)
-    print(f"✅ Resultados salvos em: {arquivo_saida}")
-    print(f"🏁 Extração finalizada! Total processado: {total_processados}")
+if __name__ == "__main__":  # pragma: no cover - ponto de entrada do script
+    main()
 
