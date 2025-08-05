@@ -8,6 +8,7 @@ import unicodedata
 
 import pandas as pd
 import requests
+from requests.adapters import HTTPAdapter, Retry
 from bs4 import BeautifulSoup
 from colunas_utils import encontrar_colunas_necessarias
 
@@ -64,11 +65,24 @@ def buscar_links_mercado_livre(
     }
 
     session = requests.Session()
+    retries = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"],
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
     time.sleep(random.uniform(1, 3))
     try:
         response = session.get(url, headers=headers, timeout=10, allow_redirects=True)
         if response.history:
-            tqdm_write("ℹ️ Redirecionamentos: " + " -> ".join(str(r.status_code) for r in response.history))
+            tqdm_write(
+                "ℹ️ Redirecionamentos: "
+                + " -> ".join(str(r.status_code) for r in response.history)
+            )
         tqdm_write(f"🌐 GET {response.url} -> {response.status_code}")
         response.raise_for_status()
     except requests.RequestException as exc:
@@ -77,8 +91,21 @@ def buscar_links_mercado_livre(
 
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # Seleciona apenas cards de produtos no layout atual
-    cards = soup.select("li.ui-search-layout__item a.ui-search-link")
+    padrao_produto = re.compile(r"(\/p\/MLB\d+|MLB-\d+|\/item\/)", re.IGNORECASE)
+
+    selectors = [
+        "li.ui-search-layout__item a.ui-search-link",
+        "a.ui-search-item__group__element.ui-search-link",
+        "div.ui-search-result__content-wrapper a.ui-search-link",
+    ]
+    cards = []
+    for sel in selectors:
+        cards = soup.select(sel)
+        if cards:
+            break
+    if not cards:
+        cards = [a for a in soup.find_all("a", href=True) if padrao_produto.search(a["href"])]
+
     if not cards:
         tqdm_write("⚠️ Nenhum card de produto encontrado na página.")
         if salvar_html:
@@ -91,7 +118,6 @@ def buscar_links_mercado_livre(
         return []
 
     links: list[str] = []
-    padrao_produto = re.compile(r"(\/p\/MLB\d+|MLB-\d+|\/item\/)", re.IGNORECASE)
     links_invalidos = (
         "/acessibilidade",
         "/ajuda",
@@ -100,11 +126,15 @@ def buscar_links_mercado_livre(
         "/seguranca",
     )
 
+    vistos = set()
     for card in cards:
         href = card.get("href")
         if not href:
             continue
         href = href.split("#")[0]
+        if href in vistos:
+            continue
+        vistos.add(href)
         if any(inv in href for inv in links_invalidos) or not padrao_produto.search(href):
             tqdm_write(f"🚫 Link ignorado: {href}")
             continue
@@ -127,6 +157,8 @@ def buscar_links_mercado_livre(
     return links
 
 def buscar_link(produto: str) -> str | None:
+    """Retorna o primeiro link de produto encontrado ou ``None``."""
+
     slug = gerar_slug(produto)
     caminho = f"debug_{slug}.html"
     links = buscar_links_mercado_livre(
@@ -137,6 +169,8 @@ def buscar_link(produto: str) -> str | None:
 def buscar_links_para_itens(
     df: pd.DataFrame, delay_range: tuple[float, float] = (5, 12)
 ) -> pd.DataFrame:
+    """Busca links para todos os itens do ``DataFrame`` fornecido."""
+
     if "Descrição do Item" not in df.columns:
         raise KeyError("DataFrame must contain 'Descrição do Item' column")
 
