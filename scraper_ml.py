@@ -1,19 +1,9 @@
-"""Fluxo completo de busca de links no Mercado Livre.
-
-Este script lê uma planilha Excel, identifica automaticamente a coluna
-principal que descreve o item e utiliza essa informação para buscar os
-primeiros links no Mercado Livre através da função
-``buscar_links_para_itens``.
-
-Caso a planilha possua uma coluna ``Modelo``, ela é adicionada ao termo de
-busca para tornar a consulta mais específica. Os resultados são exibidos no
-console e também exportados para ``resultado_scraping.xlsx``.
-"""
-
 from __future__ import annotations
-
 import sys
+import os
+import signal
 from typing import Optional
+from datetime import datetime
 
 import pandas as pd
 
@@ -21,59 +11,78 @@ from buscar_links_ml import buscar_links_para_itens
 from colunas_utils import encontrar_colunas_necessarias, montar_frase_busca
 
 
-# Nome padrão da planilha; pode ser sobrescrito via argumento de linha de
-# comando para tornar o script reutilizável com arquivos semelhantes.
 NOME_ARQUIVO = sys.argv[1] if len(sys.argv) > 1 else "66.xlsx"
+NOME_BASE_SAIDA = "resultado_scraping"
+ARQUIVO_RESULTADO = f"{NOME_BASE_SAIDA}.xlsx"
 
-# Nome do arquivo de saída contendo os links encontrados.
-ARQUIVO_RESULTADO = "resultado_scraping.xlsx"
+# Lista global de resultados para salvar parcialmente
+resultados_parciais: list[dict] = []
+salvar_automaticamente = True
+
+
+def salvar_resultado_parcial_em_excel():
+    if not resultados_parciais:
+        print("⚠️ Nenhum resultado parcial para salvar.")
+        return
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    nome_saida = f"{NOME_BASE_SAIDA}_parcial_{timestamp}.xlsx"
+
+    try:
+        df_parcial = pd.DataFrame(resultados_parciais)
+        df_parcial.to_excel(nome_saida, index=False)
+        print(f"💾 Salvamento parcial realizado em: {nome_saida}")
+    except Exception as e:
+        print(f"❌ Erro ao salvar parcial: {e}")
 
 
 def montar_dataframe_buscas(
     df: pd.DataFrame, coluna_principal: str, coluna_modelo: Optional[str]
 ) -> pd.DataFrame:
-    """Cria um ``DataFrame`` com os termos de busca.
-
-    Cada linha da planilha original é transformada em um termo de busca
-    combinando a coluna principal e, se disponível, a coluna ``Modelo``.
-    Linhas vazias são ignoradas.
-    """
-
     colunas_extras = [coluna_modelo] if coluna_modelo else []
-
     termos: list[str] = []
     for _, row in df.iterrows():
         termo = montar_frase_busca(row, coluna_principal, colunas_extras)
         if termo:
             termos.append(termo)
-
     return pd.DataFrame({"Descrição do Item": termos})
 
 
 def main() -> None:
-    """Executa o fluxo de leitura, busca e exportação dos resultados."""
-
     print("🔍 Lendo planilha...")
     df, _, info_colunas = encontrar_colunas_necessarias(NOME_ARQUIVO)
     coluna_principal = info_colunas["principal"]
-
-    # Verifica se existe uma coluna "Modelo" entre as colunas extras
-    coluna_modelo = next(
-        (c for c in info_colunas["extras"] if c.lower() == "modelo"), None
-    )
+    coluna_modelo = next((c for c in info_colunas["extras"] if c.lower() == "modelo"), None)
 
     df_busca = montar_dataframe_buscas(df, coluna_principal, coluna_modelo)
 
-    print("🔗 Buscando links no Mercado Livre...")
-    resultado_df = buscar_links_para_itens(df_busca)
+    print(f"🔎 {len(df_busca)} itens encontrados para busca.\n")
+    print("🔗 Iniciando buscas no Mercado Livre...\n")
 
-    print("\n📄 Primeiros resultados:")
-    print(resultado_df.head())
+    try:
+        for i, linha in df_busca.iterrows():
+            termo = linha["Descrição do Item"]
+            print(f"🔍 ({i+1}/{len(df_busca)}) Buscando: {termo}")
 
-    resultado_df.to_excel(ARQUIVO_RESULTADO, index=False)
-    print(f"\n✅ Resultados salvos em: {ARQUIVO_RESULTADO}")
+            resultado_linha = buscar_links_para_itens(pd.DataFrame([linha]))
+            if not resultado_linha.empty:
+                resultados_parciais.append(resultado_linha.iloc[0].to_dict())
+
+            if salvar_automaticamente and (i + 1) % 5 == 0:
+                salvar_resultado_parcial_em_excel()
+
+    except KeyboardInterrupt:
+        print("\n🛑 Interrupção manual detectada (Ctrl+C). Salvando progresso...")
+        salvar_resultado_parcial_em_excel()
+        print("⏹️ Execução interrompida com segurança.\n")
+        sys.exit(0)
+
+    print("\n✅ Todas as buscas foram concluídas!")
+
+    df_final = pd.DataFrame(resultados_parciais)
+    df_final.to_excel(ARQUIVO_RESULTADO, index=False)
+    print(f"\n📁 Resultados finais salvos em: {ARQUIVO_RESULTADO}")
 
 
-if __name__ == "__main__":  # pragma: no cover - ponto de entrada do script
+if __name__ == "__main__":
     main()
-
