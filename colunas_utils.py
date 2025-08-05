@@ -52,6 +52,38 @@ def normalizar(texto):
     return texto
 
 
+def detectar_linha_cabecalho(df: pd.DataFrame, sinonimos) -> int:
+    """Detecta automaticamente a linha que contém os nomes das colunas.
+
+    A heurística procura pela primeira linha que contenha pelo menos um
+    dos termos esperados nos cabeçalhos, considerando os sinônimos
+    informados. Caso nenhuma linha seja encontrada, assume-se a primeira
+    linha como cabeçalho.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame lido da planilha sem cabeçalho.
+    sinonimos : dict
+        Dicionário de sinônimos das colunas esperadas.
+
+    Returns
+    -------
+    int
+        Índice da linha detectada como cabeçalho.
+    """
+
+    termos = {normalizar(chave) for chave in sinonimos.keys()}
+    for nomes in sinonimos.values():
+        termos.update(normalizar(n) for n in nomes)
+
+    for idx, row in df.iterrows():
+        normalizados = [normalizar(str(c)) for c in row]
+        if any(c in termos for c in normalizados):
+            return idx
+    return 0
+
+
 def inferir_coluna_por_conteudo(serie, n=5) -> Optional[str]:
     """Tenta inferir o tipo da coluna analisando as primeiras N linhas.
 
@@ -101,10 +133,13 @@ def inferir_coluna_por_conteudo(serie, n=5) -> Optional[str]:
 def encontrar_colunas_necessarias(caminho_arquivo, sinonimos, linhas_amostra=5):
     """Lê a planilha e identifica dinamicamente as colunas necessárias.
 
-    A função tenta utilizar primeiro os cabeçalhos e seus sinônimos e,
-    caso não seja possível, infere o tipo da coluna pelos primeiros
-    valores. Colunas detectadas são renomeadas para os nomes padrão e o
-    DataFrame retornado já possui essas colunas padronizadas.
+    A função detecta automaticamente a linha que contém os nomes das
+    colunas, remove as linhas acima dela e aplica a sanitização dos
+    valores que possuam múltiplas entradas separadas por ``|``. Em
+    seguida, tenta utilizar os cabeçalhos e seus sinônimos e, caso não
+    seja possível, infere o tipo da coluna pelos primeiros valores.
+    Colunas detectadas são renomeadas para os nomes padrão e o DataFrame
+    retornado já possui essas colunas padronizadas.
 
     Retorna o DataFrame da aba encontrada, o nome da aba e um dicionário
     com as colunas mapeadas para produto, modelo, tamanho, quantidade,
@@ -112,7 +147,10 @@ def encontrar_colunas_necessarias(caminho_arquivo, sinonimos, linhas_amostra=5):
     """
     xls = pd.ExcelFile(caminho_arquivo)
     for aba in xls.sheet_names:
-        df = pd.read_excel(xls, sheet_name=aba)
+        df_raw = pd.read_excel(xls, sheet_name=aba, header=None)
+        linha_cabecalho = detectar_linha_cabecalho(df_raw, sinonimos)
+        df = df_raw.iloc[linha_cabecalho + 1 :].copy()
+        df.columns = df_raw.iloc[linha_cabecalho].fillna("").astype(str)
         df = preprocessar_planilha(df)
         colunas_normalizadas = [normalizar(c) for c in df.columns]
 
