@@ -9,6 +9,7 @@ tratamento de erros e exportação de resultados.  Ele é utilizado pelo script
 from __future__ import annotations
 
 import random
+import re
 import time
 
 import pandas as pd
@@ -83,6 +84,8 @@ def buscar_links_mercado_livre(
     if not cards:
         cards = soup.select("li.ui-search-layout__item")
     if not cards:
+        cards = soup.select("div.ui-search-card-result")
+    if not cards:
         tqdm_write(
             "⚠️ Nenhum card de produto encontrado; a estrutura da página pode ter mudado ou o acesso foi bloqueado."
         )
@@ -97,12 +100,18 @@ def buscar_links_mercado_livre(
 
     links: list[str] = []
     for card in cards:
-        if card.select_one(".ui-search-item__ad-label"):
+        if card.select_one(
+            ".ui-search-item__ad-label, .ui-search-ad-label, .ui-search-item__highlight-label"
+        ):
             continue  # ignora anúncios patrocinados
         link_tag = (
-            card.select_one("a.ui-search-link")
+            card.select_one("a.ui-search-result__content-wrapper")
+            or card.select_one("a.ui-search-link")
+            or card.select_one("h2.ui-search-item__title a")
+            or card.select_one("h3.ui-search-item__title a")
             or card.select_one("a.ui-search-item__group__element")
-            or card.select_one("a.ui-search-result__content")
+            or card.select_one("div.ui-search-result__image a")
+            or card.select_one("a.andes-card__link")
         )
         href = link_tag.get("href") if link_tag else None
         if href:
@@ -131,9 +140,15 @@ def buscar_link(produto: str) -> str:
     -------
     str
         Primeiro link encontrado ou ``""`` se nenhum resultado for obtido.
+        Quando nenhum link é encontrado, o HTML retornado é salvo com nome
+        ``debug_<termo>.html`` para depuração.
     """
 
-    links = buscar_links_mercado_livre(produto, limite=1)
+    slug = re.sub(r"[^a-z0-9-]+", "-", produto.lower()).strip("-")
+    caminho = f"debug_{slug}.html"
+    links = buscar_links_mercado_livre(
+        produto, limite=1, salvar_html=True, caminho_html=caminho
+    )
     return links[0] if links else ""
 
 
