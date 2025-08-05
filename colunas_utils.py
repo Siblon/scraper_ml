@@ -333,10 +333,13 @@ def encontrar_colunas_necessarias(caminho_arquivo, sinonimos, linhas_amostra=5):
 def identificar_colunas_busca(df: pd.DataFrame):
     """Identifica colunas relevantes para montagem da frase de busca.
 
-    A função procura por uma coluna principal de descrição e por colunas
-    opcionais que complementam a busca. Também detecta colunas
-    irrelevantes que devem ser ignoradas. Os nomes das colunas são
-    comparados de forma case-insensitive e sem acentuação.
+    A função aceita diferentes nomes para a coluna principal de
+    descrição (``produto``, ``item``, ``nome``, ``descrição`` ou
+    ``descrição do item``). Outras colunas como ``modelo``, ``tamanho``,
+    ``categoria`` e ``subcategoria`` são utilizadas apenas se estiverem
+    presentes. Colunas consideradas irrelevantes, como ``quantidade`` ou
+    ``sku``, são listadas e ignoradas automaticamente. Os nomes das
+    colunas são comparados de forma case-insensitive e sem acentuação.
 
     Parameters
     ----------
@@ -349,18 +352,29 @@ def identificar_colunas_busca(df: pd.DataFrame):
         (coluna_principal, colunas_opcionais, colunas_ignoradas)
     """
 
-    obrigatorias = ["descrição", "produto", "nome", "item"]
+    # sinônimos aceitos para a coluna principal de descrição
+    obrigatorias = [
+        "produto",
+        "item",
+        "nome",
+        "descrição",
+        "descrição do item",
+    ]
+
+    # colunas que enriquecem a busca quando disponíveis
     opcionais = ["modelo", "tamanho", "categoria", "subcategoria"]
+
+    # colunas que não devem ser consideradas durante a busca
     irrelevantes = [
+        "quantidade",
         "código ml",
         "sku",
-        "quantidade",
-        "grade",
         "endereço",
-        "vms",
-        "seller",
-        "valor",
-        "total",
+        "grade",
+        "valor unit",
+        "preco unitario",
+        "valor total",
+        "preco total",
         "vertical",
         "type seller",
     ]
@@ -397,8 +411,8 @@ def identificar_colunas_busca(df: pd.DataFrame):
     extras_msg = ", ".join(colunas_opcionais) if colunas_opcionais else "nenhuma"
     ignoradas_msg = ", ".join(colunas_ignoradas) if colunas_ignoradas else "nenhuma"
     print(f"✔ Coluna principal identificada: {coluna_principal}")
-    print(f"➕ Colunas extras incluídas na frase de busca: {extras_msg}")
-    print(f"🚫 Colunas ignoradas por irrelevância: {ignoradas_msg}")
+    print(f"➕ Colunas extras incluídas: {extras_msg}")
+    print(f"🚫 Colunas ignoradas: {ignoradas_msg}")
 
     return coluna_principal, colunas_opcionais, colunas_ignoradas
 
