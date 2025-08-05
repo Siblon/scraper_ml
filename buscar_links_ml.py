@@ -42,7 +42,8 @@ def buscar_links_mercado_livre(
 
     A requisição utiliza headers semelhantes aos de um navegador real para
     reduzir bloqueios e registra o status HTTP retornado. Caso ``salvar_html``
-    seja ``True``, o HTML obtido é gravado em ``caminho_html`` para depuração.
+    seja ``True`` e nenhum resultado seja encontrado, o HTML obtido é gravado
+    em ``caminho_html`` para depuração.
     """
 
     termo = consulta.replace(" ", "-")
@@ -77,33 +78,44 @@ def buscar_links_mercado_livre(
         tqdm_write(f"⚠️ Falha na requisição: {exc}")
         return []
 
-    if salvar_html:
-        try:
-            with open(caminho_html, "w", encoding="utf-8") as f:
-                f.write(response.text)
-        except OSError as exc:
-            tqdm_write(f"⚠️ Erro ao salvar HTML: {exc}")
-
     soup = BeautifulSoup(response.text, "html.parser")
-    cards = soup.select("li.ui-search-layout__item")
+    cards = soup.select("div.ui-search-result__wrapper")
+    if not cards:
+        cards = soup.select("li.ui-search-layout__item")
     if not cards:
         tqdm_write(
             "⚠️ Nenhum card de produto encontrado; a estrutura da página pode ter mudado ou o acesso foi bloqueado."
         )
+        if salvar_html:
+            try:
+                with open(caminho_html, "w", encoding="utf-8") as f:
+                    f.write(response.text)
+                tqdm_write(f"📝 HTML salvo em: {caminho_html}")
+            except OSError as exc:
+                tqdm_write(f"⚠️ Erro ao salvar HTML: {exc}")
         return []
 
     links: list[str] = []
     for card in cards:
         if card.select_one(".ui-search-item__ad-label"):
             continue  # ignora anúncios patrocinados
-        link_tag = card.select_one("a.ui-search-link") or card.select_one(
-            "a.ui-search-item__group__element"
+        link_tag = (
+            card.select_one("a.ui-search-link")
+            or card.select_one("a.ui-search-item__group__element")
+            or card.select_one("a.ui-search-result__content")
         )
         href = link_tag.get("href") if link_tag else None
         if href:
             links.append(href.split("#")[0])
         if len(links) >= limite:
             break
+    if not links and salvar_html:
+        try:
+            with open(caminho_html, "w", encoding="utf-8") as f:
+                f.write(response.text)
+            tqdm_write(f"📝 HTML salvo em: {caminho_html}")
+        except OSError as exc:
+            tqdm_write(f"⚠️ Erro ao salvar HTML: {exc}")
     return links
 
 
