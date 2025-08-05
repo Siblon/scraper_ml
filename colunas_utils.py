@@ -105,7 +105,9 @@ def detectar_linha_cabecalho(df: pd.DataFrame, sinonimos) -> int:
     return 0
 
 
-def inferir_coluna_por_conteudo(serie, n=5) -> Optional[str]:
+def inferir_coluna_por_conteudo(
+    serie, n=5, nome_coluna: Optional[str] = None
+) -> Optional[str]:
     """Tenta inferir o tipo da coluna analisando as primeiras N linhas.
 
     Parameters
@@ -122,6 +124,8 @@ def inferir_coluna_por_conteudo(serie, n=5) -> Optional[str]:
     - ``tamanho``: inteiros entre 15 e 50;
     - ``quantidade``: inteiros entre 1 e 100;
     - ``preco_unitario/preco_total``: valores contendo ``","`` ou ``".``.
+    - Detecção por nome da coluna para colunas principais, opcionais e
+      irrelevantes.
     """
 
     if isinstance(serie, pd.DataFrame):
@@ -130,6 +134,31 @@ def inferir_coluna_por_conteudo(serie, n=5) -> Optional[str]:
         serie = serie.iloc[:, 0]
     if not isinstance(serie, pd.Series):
         raise TypeError("'serie' deve ser uma Series")
+
+    nome_normalizado = normalizar_string(nome_coluna) if nome_coluna else ""
+    principais = {"descricao", "nome", "item", "produto"}
+    opcionais = {"modelo", "tamanho", "categoria", "subcategoria"}
+    irrelevantes = {
+        "codigoml",
+        "sku",
+        "quantidade",
+        "endereco",
+        "grade",
+        "seller",
+        "valor",
+        "total",
+        "vertical",
+        "typeseller",
+    }
+
+    if any(chave in nome_normalizado for chave in irrelevantes):
+        return None
+    for chave in principais:
+        if chave in nome_normalizado:
+            return "produto"
+    for chave in opcionais:
+        if chave in nome_normalizado:
+            return chave
 
     amostra = serie.dropna().astype(str).head(n).str.lower()
     if amostra.empty:
@@ -185,7 +214,7 @@ def inferir_seguro(df: pd.DataFrame, coluna, n=5) -> Optional[str]:
             return None
         serie = serie.iloc[:, 0]
 
-    return inferir_coluna_por_conteudo(serie, n=n)
+    return inferir_coluna_por_conteudo(serie, n=n, nome_coluna=nome)
 
 
 def encontrar_colunas_necessarias(caminho_arquivo, sinonimos, linhas_amostra=5):
@@ -200,8 +229,8 @@ def encontrar_colunas_necessarias(caminho_arquivo, sinonimos, linhas_amostra=5):
     retornado já possui essas colunas padronizadas.
 
     Retorna o DataFrame da aba encontrada, o nome da aba e um dicionário
-    com as colunas mapeadas para produto, modelo, tamanho, quantidade,
-    preço unitário e total.
+    com as colunas mapeadas para produto e, quando disponíveis, modelo,
+    tamanho, categoria, subcategoria, quantidade, preço unitário e total.
     """
     xls = pd.ExcelFile(caminho_arquivo)
     for aba in xls.sheet_names:
@@ -217,6 +246,18 @@ def encontrar_colunas_necessarias(caminho_arquivo, sinonimos, linhas_amostra=5):
         colunas_originais = {}
         colunas_sugeridas = {}
         colunas_restantes = set(df.columns)
+        irrelevantes = {
+            "codigoml",
+            "sku",
+            "quantidade",
+            "endereco",
+            "grade",
+            "seller",
+            "valor",
+            "total",
+            "vertical",
+            "typeseller",
+        }
 
         for chave, nomes in sinonimos.items():
             scores = []
@@ -245,6 +286,8 @@ def encontrar_colunas_necessarias(caminho_arquivo, sinonimos, linhas_amostra=5):
                 colunas_encontradas[chave] = None
 
         for coluna in list(colunas_restantes):
+            if normalizar(coluna) in irrelevantes:
+                continue
             guess = inferir_seguro(df, coluna, n=linhas_amostra)
             if guess:
                 destino = guess
@@ -277,14 +320,14 @@ def encontrar_colunas_necessarias(caminho_arquivo, sinonimos, linhas_amostra=5):
                 else:
                     print(f"  ⚠️ Coluna '{chave}' não encontrada.")
 
-        if colunas_encontradas.get("produto") and colunas_encontradas.get("tamanho"):
+        if colunas_encontradas.get("produto"):
             return df, aba, colunas_encontradas
 
         print(
-            "  ⚠️ Colunas obrigatórias 'produto' e 'tamanho' não encontradas nesta aba."
+            "  ⚠️ Coluna obrigatória 'produto' não encontrada nesta aba."
         )
 
-    raise ValueError("❌ Colunas obrigatórias não encontradas!")
+    raise ValueError("Nenhuma coluna de descrição do produto foi encontrada.")
 
 
 def identificar_colunas_busca(df: pd.DataFrame):
@@ -333,7 +376,7 @@ def identificar_colunas_busca(df: pd.DataFrame):
             coluna_principal = original
             break
     if coluna_principal is None:
-        raise ValueError("❌ Coluna de descrição obrigatória não encontrada")
+        raise ValueError("Nenhuma coluna de descrição do produto foi encontrada.")
 
     # Colunas opcionais
     opcionais_norm = [normalizar_string(k) for k in opcionais]
@@ -353,9 +396,9 @@ def identificar_colunas_busca(df: pd.DataFrame):
 
     extras_msg = ", ".join(colunas_opcionais) if colunas_opcionais else "nenhuma"
     ignoradas_msg = ", ".join(colunas_ignoradas) if colunas_ignoradas else "nenhuma"
-    print(f"🔍 Coluna principal identificada: {coluna_principal}")
+    print(f"✔ Coluna principal identificada: {coluna_principal}")
     print(f"➕ Colunas extras incluídas na frase de busca: {extras_msg}")
-    print(f"🚫 Colunas ignoradas: {ignoradas_msg}")
+    print(f"🚫 Colunas ignoradas por irrelevância: {ignoradas_msg}")
 
     return coluna_principal, colunas_opcionais, colunas_ignoradas
 
