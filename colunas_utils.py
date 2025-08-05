@@ -87,6 +87,14 @@ def detectar_linha_cabecalho(df: pd.DataFrame, sinonimos) -> int:
 def inferir_coluna_por_conteudo(serie, n=5) -> Optional[str]:
     """Tenta inferir o tipo da coluna analisando as primeiras N linhas.
 
+    Parameters
+    ----------
+    serie : pd.Series ou DataFrame
+        Coluna a ser analisada. DataFrames devem possuir apenas uma
+        coluna, caso contrário um ``TypeError`` será levantado.
+    n : int, optional
+        Número de linhas utilizadas para a inferência.
+
     As heurísticas levam em consideração:
 
     - ``produto``: presença de marcas conhecidas em texto;
@@ -94,6 +102,13 @@ def inferir_coluna_por_conteudo(serie, n=5) -> Optional[str]:
     - ``quantidade``: inteiros entre 1 e 100;
     - ``preco_unitario/preco_total``: valores contendo ``","`` ou ``".``.
     """
+
+    if isinstance(serie, pd.DataFrame):
+        if serie.shape[1] != 1:
+            raise TypeError("'serie' deve ser uma Series ou DataFrame de uma única coluna")
+        serie = serie.iloc[:, 0]
+    if not isinstance(serie, pd.Series):
+        raise TypeError("'serie' deve ser uma Series")
 
     amostra = serie.dropna().astype(str).head(n).str.lower()
     if amostra.empty:
