@@ -80,8 +80,6 @@ def buscar_links_mercado_livre(
     adapter = HTTPAdapter(max_retries=retries)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-
-    time.sleep(random.uniform(1, 3))
     try:
         response = session.get(url, headers=headers, timeout=10, allow_redirects=True)
         if response.history:
@@ -172,15 +170,72 @@ def buscar_link(produto: str) -> str | None:
     )
     return links[0] if links else None
 
-def buscar_links_para_itens(
-    df: pd.DataFrame, delay_range: tuple[float, float] = (3, 7)
-) -> pd.DataFrame:
-    """Busca links no Mercado Livre usando Selenium.
 
-    Para cada descrição do ``DataFrame`` abre a página de busca em um navegador
-    headless, aguarda o carregamento dos produtos e captura o primeiro link de
-    item válido. Em caso de falha, salva o HTML de depuração.
+def buscar_links_selenium(
+    termo: str,
+    driver: webdriver.Chrome,
+    padrao_produto: re.Pattern,
+    links_invalidos: tuple[str, ...],
+) -> tuple[str, str]:
+    """Usa Selenium como fallback para encontrar um link de produto.
+
+    Retorna ``(link, status)`` e salva ``debug_<termo>.html`` em caso de falha
+    ou timeout.
     """
+
+    url = f"https://lista.mercadolivre.com.br/{termo}"
+    tqdm_write(f"🌐 [Selenium] Acessando: {url}")
+    try:
+        driver.get(url)
+        wait = WebDriverWait(driver, 10)
+        wait.until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, "li.ui-search-layout__item")
+            )
+        )
+        elementos = driver.find_elements(
+            By.CSS_SELECTOR, "li.ui-search-layout__item a.ui-search-link"
+        )
+        for elem in elementos:
+            href = elem.get_attribute("href")
+            if not href:
+                continue
+            href = href.split("#")[0]
+            if any(inv in href for inv in links_invalidos):
+                continue
+            if padrao_produto.search(href):
+                tqdm_write(f"✅ Link encontrado (Selenium): {href}")
+                return href, "Sucesso (via Selenium)"
+
+        caminho = f"debug_{termo}.html"
+        with open(caminho, "w", encoding="utf-8") as f:
+            f.write(driver.page_source)
+        tqdm_write(f"⚠️ Nenhum resultado com Selenium. HTML salvo em: {caminho}")
+        return "NÃO ENCONTRADO", "Falha"
+
+    except TimeoutException:
+        caminho = f"debug_{termo}.html"
+        with open(caminho, "w", encoding="utf-8") as f:
+            f.write(driver.page_source)
+        tqdm_write(f"⌛ Timeout. HTML salvo em: {caminho}")
+        return "NÃO ENCONTRADO", "Timeout"
+
+    except Exception as exc:
+        caminho = f"debug_{termo}.html"
+        try:
+            with open(caminho, "w", encoding="utf-8") as f:
+                f.write(driver.page_source)
+            tqdm_write(f"📝 HTML salvo em: {caminho}")
+        except Exception:
+            pass
+        tqdm_write(f"❌ Erro no Selenium: {exc}")
+        return "NÃO ENCONTRADO", f"Erro: {type(exc).__name__}"
+
+
+def buscar_links_para_itens(
+    df: pd.DataFrame, delay_range: tuple[float, float] = (2, 6)
+) -> pd.DataFrame:
+    """Busca links usando requests e Selenium como fallback."""
 
     if "Descrição do Item" not in df.columns:
         raise KeyError("DataFrame must contain 'Descrição do Item' column")
@@ -196,7 +251,6 @@ def buscar_links_para_itens(
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument(f"--user-agent={random.choice(USER_AGENTS)}")
-
     driver = webdriver.Chrome(options=options)
 
     links_invalidos = (
@@ -206,7 +260,7 @@ def buscar_links_para_itens(
         "/privacidade",
         "/seguranca",
     )
-    padrao_produto = re.compile(r"(?:/item/|/p/)", re.IGNORECASE)
+    padrao_produto = re.compile(r"/(?:item|produto|p)/", re.IGNORECASE)
 
     try:
         for indice, descricao in enumerate(
@@ -217,61 +271,17 @@ def buscar_links_para_itens(
             inicio = time.time()
 
             slug = gerar_slug(termo_busca)
-            url = f"https://lista.mercadolivre.com.br/{slug}"
-            status = "Não encontrado"
-            link_saida = "NÃO ENCONTRADO"
 
-            try:
-                tqdm_write(f"🌐 Acessando: {url}")
-                driver.get(url)
-                wait = WebDriverWait(driver, 10)
-                wait.until(
-                    EC.presence_of_element_located(
-                        (By.CSS_SELECTOR, "li.ui-search-layout__item a.ui-search-link")
-                    )
+            links = buscar_links_mercado_livre(
+                termo_busca, limite=1, salvar_html=False
+            )
+            if links:
+                link_saida = links[0]
+                status = "Sucesso (rápido)"
+            else:
+                link_saida, status = buscar_links_selenium(
+                    slug, driver, padrao_produto, links_invalidos
                 )
-                elementos = driver.find_elements(
-                    By.CSS_SELECTOR, "li.ui-search-layout__item a.ui-search-link"
-                )
-                for elem in elementos:
-                    href = elem.get_attribute("href")
-                    if not href:
-                        continue
-                    href = href.split("#")[0]
-                    if any(inv in href for inv in links_invalidos):
-                        tqdm_write(f"🚫 Link ignorado: {href}")
-                        continue
-                    if not padrao_produto.search(href):
-                        tqdm_write(f"🚫 Link ignorado: {href}")
-                        continue
-                    link_saida = href
-                    status = "Sucesso"
-                    tqdm_write(f"✅ Link encontrado: {href}")
-                    break
-                if status != "Sucesso":
-                    tqdm_write(
-                        f"⚠️ Nenhum resultado encontrado para: \"{termo_busca}\""
-                    )
-                    nome_debug = f"debug_{slug}.html"
-                    with open(nome_debug, "w", encoding="utf-8") as f:
-                        f.write(driver.page_source)
-                    tqdm_write(f"📝 HTML salvo em: {nome_debug}")
-            except TimeoutException:
-                status = "Timeout"
-                tqdm_write("⌛ Timeout ao carregar resultados")
-                nome_debug = f"debug_{slug}.html"
-                with open(nome_debug, "w", encoding="utf-8") as f:
-                    f.write(driver.page_source)
-                tqdm_write(f"📝 HTML salvo em: {nome_debug}")
-            except Exception as exc:
-                status = f"Erro: {type(exc).__name__}"
-                tqdm_write(
-                    f"❌ Erro ao buscar: \"{termo_busca}\" - {exc}"
-                )
-                nome_debug = f"debug_{slug}.html"
-                with open(nome_debug, "w", encoding="utf-8") as f:
-                    f.write(driver.page_source)
-                tqdm_write(f"📝 HTML salvo em: {nome_debug}")
 
             duracao = time.time() - inicio
             tqdm_write(f"⏱️ Tempo: {duracao:.2f}s")
@@ -285,12 +295,13 @@ def buscar_links_para_itens(
                     "Tempo (s)": f"{duracao:.2f}",
                 }
             )
-            espera = random.uniform(*delay_range)
-            time.sleep(espera)
+
+            time.sleep(random.uniform(*delay_range))
     finally:
         driver.quit()
 
     return pd.DataFrame(resultados)
+
 
 def main():
     df, _, info_colunas = encontrar_colunas_necessarias(NOME_ARQUIVO)
