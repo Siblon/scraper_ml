@@ -68,7 +68,7 @@ def main() -> None:
             if not resultado_linha.empty:
                 resultados_parciais.append(resultado_linha.iloc[0].to_dict())
 
-            if salvar_automaticamente and (i + 1) % 5 == 0:
+            if salvar_automaticamente:
                 salvar_resultado_parcial_em_excel()
 
     except KeyboardInterrupt:
