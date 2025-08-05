@@ -1,15 +1,33 @@
+"""Funções auxiliares para buscar links no Mercado Livre com logs detalhados.
+
+Este módulo centraliza a lógica de scraping e inclui recursos de logging,
+tratamento de erros e exportação de resultados.  Ele é utilizado pelo script
+``scraper_ml.py`` para processar uma lista de produtos e gerar um arquivo
+``.xlsx`` com os links encontrados.
+"""
+
+from __future__ import annotations
+
+import time
+
+import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-import pandas as pd
-import time
 
 from colunas_utils import encontrar_colunas_necessarias
 
+try:  # tqdm é opcional; se não estiver instalado, seguimos sem a barra de progresso
+    from tqdm import tqdm
+except Exception:  # pragma: no cover - fallback simples
+    def tqdm(iterable, *_, **__):
+        return iterable
+
+
 NOME_ARQUIVO = "66.xlsx"
-RESULTADO_ARQUIVO = "resultado_links.xlsx"
+RESULTADO_ARQUIVO = "resultados_scraping.xlsx"
 
 
-def buscar_links_mercado_livre(consulta: str, limite: int = 3) -> list[str]:
+def buscar_links_mercado_livre(consulta: str, limite: int = 1) -> list[str]:
     """Retorna os primeiros ``limite`` links de uma busca no Mercado Livre."""
 
     url = f"https://lista.mercadolivre.com.br/{consulta}"
@@ -28,20 +46,40 @@ def buscar_links_mercado_livre(consulta: str, limite: int = 3) -> list[str]:
     return links
 
 
-def buscar_links_para_itens(df: pd.DataFrame) -> pd.DataFrame:
-    """Busca os três primeiros links para cada item em um ``DataFrame``.
+def buscar_link(produto: str) -> str:
+    """Retorna o primeiro link encontrado para ``produto``.
+
+    Parameters
+    ----------
+    produto : str
+        Termo a ser pesquisado no Mercado Livre.
+
+    Returns
+    -------
+    str
+        Primeiro link encontrado ou ``""`` se nenhum resultado for obtido.
+    """
+
+    links = buscar_links_mercado_livre(produto, limite=1)
+    return links[0] if links else ""
+
+
+def buscar_links_para_itens(df: pd.DataFrame, delay: float = 1.0) -> pd.DataFrame:
+    """Busca o primeiro link para cada item com logs e resumo final.
 
     Parameters
     ----------
     df : pd.DataFrame
         ``DataFrame`` contendo a coluna ``Descrição do Item`` com os termos
         a serem pesquisados.
+    delay : float, optional
+        Pausa em segundos entre uma busca e outra para evitar bloqueios.
 
     Returns
     -------
     pd.DataFrame
-        ``DataFrame`` com as colunas ``Descrição do Item`` e ``Link 1`` a
-        ``Link 3`` contendo os primeiros resultados encontrados.
+        DataFrame com as colunas ``Produto``, ``Link encontrado``, ``Status`` e
+        ``Mensagem de erro``.
     """
 
     if "Descrição do Item" not in df.columns:
@@ -52,43 +90,52 @@ def buscar_links_para_itens(df: pd.DataFrame) -> pd.DataFrame:
     total = len(itens)
     falhas: list[str] = []
 
-    for indice, descricao in enumerate(itens, start=1):
+    for indice, descricao in enumerate(tqdm(itens, total=total, desc="Progresso"), start=1):
         termo_busca = str(descricao).strip()
-        print(f"🔍 Buscando item {indice} de {total}: \"{termo_busca}\"")
+        tqdm.write(f"Buscando item {indice} de {total}: \"{termo_busca}\"")
         inicio = time.time()
+        link = ""
+        status = "Erro"
+        msg_erro = ""
         try:
-            links = buscar_links_mercado_livre(termo_busca)
-            if links:
-                print(f"✅ Link encontrado: {links[0]}")
+            link = buscar_link(termo_busca)
+            if link:
+                tqdm.write(f"✅ Link encontrado: {link}")
+                status = "Sucesso"
             else:
-                print("⚠️ Nenhum link encontrado")
+                msg_erro = "Nenhum link encontrado"
+                falhas.append(termo_busca)
+                tqdm.write("⚠️ Nenhum link encontrado")
         except Exception as exc:  # pragma: no cover - interação com rede
-            print(
+            msg_erro = str(exc)
+            falhas.append(termo_busca)
+            tqdm.write(
                 f"❌ Erro ao buscar: \"{termo_busca}\" - {type(exc).__name__}"
             )
-            falhas.append(termo_busca)
-            links = []
         duracao = time.time() - inicio
-        print(f"⏱️ Tempo de busca: {duracao:.2f} segundos")
-        print("---")
+        tqdm.write(f"⏱️ Tempo: {duracao:.2f}s")
+        tqdm.write("---")
 
-        resultado = {"Descrição do Item": termo_busca}
-        for i in range(3):
-            resultado[f"Link {i + 1}"] = links[i] if i < len(links) else ""
-        resultados.append(resultado)
+        resultados.append(
+            {
+                "Produto": termo_busca,
+                "Link encontrado": link,
+                "Status": status,
+                "Mensagem de erro": msg_erro,
+            }
+        )
+        time.sleep(delay)
 
     sucesso = total - len(falhas)
-    print(
-        f"\nResumo: {sucesso} produtos processados com sucesso e {len(falhas)} falharam."
-    )
+    print("\nResumo:")
+    print(f"- Sucessos: {sucesso}")
+    print(f"- Falhas: {len(falhas)}")
     if falhas:
         print("Itens com falha:")
         for item in falhas:
             print(f"- {item}")
 
-    return pd.DataFrame(
-        resultados, columns=["Descrição do Item", "Link 1", "Link 2", "Link 3"]
-    )
+    return pd.DataFrame(resultados)
 
 
 def main():
