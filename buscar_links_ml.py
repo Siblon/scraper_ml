@@ -32,21 +32,74 @@ NOME_ARQUIVO = "66.xlsx"
 RESULTADO_ARQUIVO = "resultado_scraping.xlsx"
 
 
-def buscar_links_mercado_livre(consulta: str, limite: int = 1) -> list[str]:
-    """Retorna os primeiros ``limite`` links de uma busca no Mercado Livre."""
+def buscar_links_mercado_livre(
+    consulta: str,
+    limite: int = 1,
+    salvar_html: bool = False,
+    caminho_html: str = "pagina_debug.html",
+) -> list[str]:
+    """Retorna os primeiros ``limite`` links de uma busca no Mercado Livre.
 
-    url = f"https://lista.mercadolivre.com.br/{consulta}"
-    headers = {"User-Agent": "Mozilla/5.0"}
+    A requisição utiliza headers semelhantes aos de um navegador real para
+    reduzir bloqueios e registra o status HTTP retornado. Caso ``salvar_html``
+    seja ``True``, o HTML obtido é gravado em ``caminho_html`` para depuração.
+    """
+
+    termo = consulta.replace(" ", "-")
+    url = f"https://lista.mercadolivre.com.br/{termo}"
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 "
+            "Safari/537.36"
+        ),
+        "Accept": (
+            "text/html,application/xhtml+xml,application/xml;q=0.9," "image/avif,image/webp,image/apng,*/*;q=0.8"
+        ),
+        "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "Pragma": "no-cache",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
+    session = requests.Session()
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        response = session.get(url, headers=headers, timeout=10, allow_redirects=True)
+        if response.history:
+            tqdm_write(
+                "ℹ️ Redirecionamentos: "
+                + " -> ".join(str(r.status_code) for r in response.history)
+            )
+        tqdm_write(f"🌐 GET {response.url} -> {response.status_code}")
         response.raise_for_status()
-    except requests.RequestException:
+    except requests.RequestException as exc:
+        tqdm_write(f"⚠️ Falha na requisição: {exc}")
         return []
 
+    if salvar_html:
+        try:
+            with open(caminho_html, "w", encoding="utf-8") as f:
+                f.write(response.text)
+        except OSError as exc:
+            tqdm_write(f"⚠️ Erro ao salvar HTML: {exc}")
+
     soup = BeautifulSoup(response.text, "html.parser")
+    cards = soup.select("li.ui-search-layout__item")
+    if not cards:
+        tqdm_write(
+            "⚠️ Nenhum card de produto encontrado; a estrutura da página pode ter mudado ou o acesso foi bloqueado."
+        )
+        return []
+
     links: list[str] = []
-    for tag in soup.select("a.ui-search-result__content-wrapper"):
-        href = tag.get("href")
+    for card in cards:
+        if card.select_one(".ui-search-item__ad-label"):
+            continue  # ignora anúncios patrocinados
+        link_tag = card.select_one("a.ui-search-link") or card.select_one(
+            "a.ui-search-item__group__element"
+        )
+        href = link_tag.get("href") if link_tag else None
         if href:
             links.append(href.split("#")[0])
         if len(links) >= limite:
