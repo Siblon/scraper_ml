@@ -74,13 +74,12 @@ def buscar_links_para_itens(df_busca: pd.DataFrame) -> pd.DataFrame:
         try:
             resposta = requests.get(url, headers=HEADERS, timeout=10)
             html = resposta.text
-            link = extrair_com_bs4(html)
+            url_final = resposta.url
 
-            if link:
-                tempo = round(time.time() - inicio, 2)
-                print(f"✅ Link encontrado (BS4): {link}")
-                status = "Sucesso (rápido)"
-            else:
+            bloqueado = "account-verification" in url_final
+            sem_cards = "ui-search-layout__item" not in html
+
+            if bloqueado or sem_cards:
                 print("⚠️ Nada com BeautifulSoup. Ativando Selenium...")
                 link = extrair_com_selenium(termo)
                 tempo = round(time.time() - inicio, 2)
@@ -95,6 +94,28 @@ def buscar_links_para_itens(df_busca: pd.DataFrame) -> pd.DataFrame:
                         f.write(html)
                     link = "NÃO ENCONTRADO"
                     status = "Falha"
+            else:
+                link = extrair_com_bs4(html)
+
+                if link:
+                    tempo = round(time.time() - inicio, 2)
+                    print(f"✅ Link encontrado (BS4): {link}")
+                    status = "Sucesso (rápido)"
+                else:
+                    print("⚠️ Nada com BeautifulSoup. Ativando Selenium...")
+                    link = extrair_com_selenium(termo)
+                    tempo = round(time.time() - inicio, 2)
+
+                    if link:
+                        print(f"✅ Link encontrado (Selenium): {link}")
+                        status = "Sucesso (via Selenium)"
+                    else:
+                        print(f"❌ Nenhum produto encontrado. HTML salvo.")
+                        nome_html = f"debug_{termo[:40].replace(' ', '_')}.html"
+                        with open(nome_html, "w", encoding="utf-8") as f:
+                            f.write(html)
+                        link = "NÃO ENCONTRADO"
+                        status = "Falha"
 
         except Exception as e:
             tempo = round(time.time() - inicio, 2)
