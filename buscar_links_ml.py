@@ -11,6 +11,12 @@ import requests
 from requests.adapters import HTTPAdapter, Retry
 from bs4 import BeautifulSoup
 from colunas_utils import encontrar_colunas_necessarias
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 
 try:
     from tqdm import tqdm
@@ -169,7 +175,7 @@ def buscar_link(produto: str) -> str | None:
 def buscar_links_para_itens(
     df: pd.DataFrame, delay_range: tuple[float, float] = (5, 12)
 ) -> pd.DataFrame:
-    """Busca links para todos os itens do ``DataFrame`` fornecido."""
+    """Busca links para todos os itens do ``DataFrame`` fornecido usando Selenium."""
 
     if "Descrição do Item" not in df.columns:
         raise KeyError("DataFrame must contain 'Descrição do Item' column")
@@ -178,37 +184,84 @@ def buscar_links_para_itens(
     itens = df["Descrição do Item"].dropna().unique()
     total = len(itens)
 
-    for indice, descricao in enumerate(
-        tqdm(itens, total=total, desc="Progresso"), start=1
-    ):
-        termo_busca = str(descricao).strip()
-        tqdm_write(f"🔎 [{indice}/{total}] Buscando: \"{termo_busca}\"")
-        inicio = time.time()
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
 
-        link: str | None = None
-        try:
-            link = buscar_link(termo_busca)
-        except Exception as exc:
-            tqdm_write(
-                f"❌ Erro ao buscar: \"{termo_busca}\" - {type(exc).__name__}"
+    driver = webdriver.Chrome(options=options)
+
+    links_invalidos = (
+        "/acessibilidade",
+        "/ajuda",
+        "/ofertas",
+        "/privacidade",
+        "/seguranca",
+    )
+
+    try:
+        for indice, descricao in enumerate(
+            tqdm(itens, total=total, desc="Progresso"), start=1
+        ):
+            termo_busca = str(descricao).strip()
+            tqdm_write(f"🔎 [{indice}/{total}] Buscando: \"{termo_busca}\"")
+            inicio = time.time()
+
+            slug = gerar_slug(termo_busca)
+            url = f"https://lista.mercadolivre.com.br/{slug}"
+            status = "Não encontrado"
+            link_saida = "NÃO ENCONTRADO"
+
+            try:
+                tqdm_write(f"🌐 Acessando: {url}")
+                driver.get(url)
+                wait = WebDriverWait(driver, 10)
+                wait.until(
+                    EC.presence_of_element_located(
+                        (By.CSS_SELECTOR, "li.ui-search-layout__item a.ui-search-link")
+                    )
+                )
+                elementos = driver.find_elements(
+                    By.CSS_SELECTOR, "li.ui-search-layout__item a.ui-search-link"
+                )
+                for elem in elementos:
+                    href = elem.get_attribute("href")
+                    if not href:
+                        continue
+                    href = href.split("#")[0]
+                    if any(inv in href for inv in links_invalidos):
+                        tqdm_write(f"🚫 Link ignorado: {href}")
+                        continue
+                    link_saida = href
+                    status = "Sucesso"
+                    tqdm_write(f"✅ Produto encontrado: {href}")
+                    break
+            except TimeoutException:
+                status = "Timeout"
+                tqdm_write("⌛ Timeout ao carregar resultados")
+            except Exception as exc:
+                status = f"Erro: {type(exc).__name__}"
+                tqdm_write(
+                    f"❌ Erro ao buscar: \"{termo_busca}\" - {exc}"
+                )
+
+            duracao = time.time() - inicio
+            tqdm_write(f"⏱️ Tempo: {duracao:.2f}s")
+            tqdm_write("---")
+
+            resultados.append(
+                {
+                    "Descrição do Item": termo_busca,
+                    "Link encontrado": link_saida,
+                    "Status": status,
+                    "Tempo (s)": f"{duracao:.2f}",
+                }
             )
-
-        duracao = time.time() - inicio
-        status = "Sucesso" if link else "Não encontrado"
-        link_saida = link if link else "NÃO ENCONTRADO"
-        tqdm_write(f"⏱️ Tempo: {duracao:.2f}s")
-        tqdm_write("---")
-
-        resultados.append(
-            {
-                "Descrição do Item": termo_busca,
-                "Link encontrado": link_saida,
-                "Status": status,
-                "Tempo (s)": f"{duracao:.2f}",
-            }
-        )
-        espera = random.uniform(*delay_range)
-        time.sleep(espera)
+            espera = random.uniform(*delay_range)
+            time.sleep(espera)
+    finally:
+        driver.quit()
 
     return pd.DataFrame(resultados)
 
