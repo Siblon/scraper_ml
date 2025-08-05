@@ -28,7 +28,7 @@ def inferir_coluna_por_conteudo(serie, n=5) -> Optional[str]:
     - ``produto``: presença de marcas conhecidas em texto;
     - ``tamanho``: inteiros entre 15 e 50;
     - ``quantidade``: inteiros entre 1 e 100;
-    - ``preco_unitario/preco_total``: números decimais maiores que 20.
+    - ``preco_unitario/preco_total``: valores contendo ``","`` ou ``".``.
     """
 
     amostra = serie.dropna().astype(str).head(n).str.lower()
@@ -36,7 +36,16 @@ def inferir_coluna_por_conteudo(serie, n=5) -> Optional[str]:
         return None
 
     texto = " ".join(amostra)
-    produto_keywords = ["nike", "adidas", "tenis", "tênis", "sapato"]
+    produto_keywords = [
+        "nike",
+        "adidas",
+        "tenis",
+        "tênis",
+        "sapato",
+        "camisa",
+        "calca",
+        "calça",
+    ]
     if any(k in texto for k in produto_keywords):
         return "produto"
 
@@ -46,12 +55,13 @@ def inferir_coluna_por_conteudo(serie, n=5) -> Optional[str]:
     )
     numeros = pd.to_numeric(numeros, errors="coerce")
     if numeros.notna().all():
-        if numeros.between(15, 50).all() and (numeros % 1 == 0).all():
+        if (numeros % 1 == 0).all() and numeros.between(15, 50).all():
             return "tamanho"
-        if (numeros % 1 == 0).all() and numeros.between(1, 100).all():
+        if (numeros % 1 == 0).all() and numeros.between(0, 99).all():
             return "quantidade"
-        if numeros.min() >= 20 and (numeros % 1 != 0).any():
-            return "preco_unitario"
+
+    if amostra.str.contains(r"[,.]").all():
+        return "preco_unitario"
 
     return None
 
