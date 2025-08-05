@@ -77,10 +77,10 @@ def buscar_links_mercado_livre(
 
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # Novo seletor adaptado para layout atual
-    cards = soup.select("a[href*='mercadolivre.com.br']")
+    # Seleciona apenas cards de produtos no layout atual
+    cards = soup.select("li.ui-search-layout__item a.ui-search-link")
     if not cards:
-        tqdm_write("⚠️ Nenhum card encontrado com os seletores atualizados.")
+        tqdm_write("⚠️ Nenhum card de produto encontrado na página.")
         if salvar_html:
             try:
                 with open(caminho_html, "w", encoding="utf-8") as f:
@@ -91,13 +91,24 @@ def buscar_links_mercado_livre(
         return []
 
     links: list[str] = []
+    padrao_produto = re.compile(r"(\/p\/MLB\d+|MLB-\d+|\/item\/)", re.IGNORECASE)
+    links_invalidos = (
+        "/acessibilidade",
+        "/ajuda",
+        "/ofertas",
+        "/privacidade",
+        "/seguranca",
+    )
+
     for card in cards:
         href = card.get("href")
-        if not href or "anuncio" in href.lower():
+        if not href:
             continue
         href = href.split("#")[0]
-        if "mercadolivre.com.br/privacidade" in href.lower():
+        if any(inv in href for inv in links_invalidos) or not padrao_produto.search(href):
+            tqdm_write(f"🚫 Link ignorado: {href}")
             continue
+        tqdm_write(f"✅ Produto encontrado: {href}")
         links.append(href)
         if len(links) >= limite:
             break
@@ -110,64 +121,60 @@ def buscar_links_mercado_livre(
         except OSError as exc:
             tqdm_write(f"⚠️ Erro ao salvar HTML: {exc}")
 
+    if not links:
+        tqdm_write("⚠️ Nenhum produto real encontrado.")
+
     return links
 
-def buscar_link(produto: str) -> str:
+def buscar_link(produto: str) -> str | None:
     slug = gerar_slug(produto)
     caminho = f"debug_{slug}.html"
-    links = buscar_links_mercado_livre(produto, limite=1, salvar_html=True, caminho_html=caminho)
-    return links[0] if links else ""
+    links = buscar_links_mercado_livre(
+        produto, limite=1, salvar_html=True, caminho_html=caminho
+    )
+    return links[0] if links else None
 
-def buscar_links_para_itens(df: pd.DataFrame, delay_range: tuple[float, float] = (5, 12)) -> pd.DataFrame:
+def buscar_links_para_itens(
+    df: pd.DataFrame, delay_range: tuple[float, float] = (5, 12)
+) -> pd.DataFrame:
     if "Descrição do Item" not in df.columns:
         raise KeyError("DataFrame must contain 'Descrição do Item' column")
 
     resultados: list[dict[str, str]] = []
     itens = df["Descrição do Item"].dropna().unique()
     total = len(itens)
-    falhas: list[str] = []
 
-    for indice, descricao in enumerate(tqdm(itens, total=total, desc="Progresso"), start=1):
+    for indice, descricao in enumerate(
+        tqdm(itens, total=total, desc="Progresso"), start=1
+    ):
         termo_busca = str(descricao).strip()
         tqdm_write(f"🔎 [{indice}/{total}] Buscando: \"{termo_busca}\"")
         inicio = time.time()
-        link = ""
-        status = "Erro"
-        msg_erro = ""
+
+        link: str | None = None
         try:
             link = buscar_link(termo_busca)
-            if link:
-                tqdm_write(f"✅ Link encontrado: {link}")
-                status = "Sucesso"
-            else:
-                msg_erro = "Nenhum link encontrado"
-                falhas.append(termo_busca)
-                tqdm_write("⚠️ Nenhum link encontrado")
         except Exception as exc:
-            msg_erro = str(exc)
-            falhas.append(termo_busca)
-            tqdm_write(f"❌ Erro ao buscar: \"{termo_busca}\" - {type(exc).__name__}")
+            tqdm_write(
+                f"❌ Erro ao buscar: \"{termo_busca}\" - {type(exc).__name__}"
+            )
+
         duracao = time.time() - inicio
+        status = "Sucesso" if link else "Não encontrado"
+        link_saida = link if link else "NÃO ENCONTRADO"
         tqdm_write(f"⏱️ Tempo: {duracao:.2f}s")
         tqdm_write("---")
 
-        resultados.append({
-            "Produto": termo_busca,
-            "Link encontrado": link,
-            "Status": status,
-            "Mensagem de erro": msg_erro,
-        })
+        resultados.append(
+            {
+                "Descrição do Item": termo_busca,
+                "Link encontrado": link_saida,
+                "Status": status,
+                "Tempo (s)": f"{duracao:.2f}",
+            }
+        )
         espera = random.uniform(*delay_range)
         time.sleep(espera)
-
-    sucesso = total - len(falhas)
-    print("\nResumo:")
-    print(f"- Sucessos: {sucesso}")
-    print(f"- Falhas: {len(falhas)}")
-    if falhas:
-        print("Itens com falha:")
-        for item in falhas:
-            print(f"- {item}")
 
     return pd.DataFrame(resultados)
 
