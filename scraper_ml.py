@@ -13,27 +13,30 @@ from colunas_utils import encontrar_colunas_necessarias, montar_frase_busca
 
 NOME_ARQUIVO = sys.argv[1] if len(sys.argv) > 1 else "66.xlsx"
 NOME_BASE_SAIDA = "resultado_scraping"
-ARQUIVO_RESULTADO = f"{NOME_BASE_SAIDA}.xlsx"
 
 # Lista global de resultados para salvar parcialmente
 resultados_parciais: list[dict] = []
-salvar_automaticamente = True
 
 
-def salvar_resultado_parcial_em_excel():
+def salvar_resultado_parcial_em_excel() -> Optional[str]:
     if not resultados_parciais:
         print("⚠️ Nenhum resultado parcial para salvar.")
-        return
+        return None
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     nome_saida = f"{NOME_BASE_SAIDA}_parcial_{timestamp}.xlsx"
+    pasta_planilhas = "planilhas"
+    os.makedirs(pasta_planilhas, exist_ok=True)
+    caminho_saida = os.path.join(pasta_planilhas, nome_saida)
 
     try:
         df_parcial = pd.DataFrame(resultados_parciais)
-        df_parcial.to_excel(nome_saida, index=False)
-        print(f"💾 Salvamento parcial realizado em: {nome_saida}")
+        df_parcial.to_excel(caminho_saida, index=False)
+        print(f"💾 Salvamento parcial realizado em: {caminho_saida}")
+        return caminho_saida
     except Exception as e:
         print(f"❌ Erro ao salvar parcial: {e}")
+        return None
 
 
 def montar_dataframe_buscas(
@@ -59,6 +62,8 @@ def main() -> None:
     print(f"🔎 {len(df_busca)} itens encontrados para busca.\n")
     print("🔗 Iniciando buscas no Mercado Livre...\n")
 
+    caminho_planilha: Optional[str] = None
+
     try:
         for i, linha in df_busca.iterrows():
             termo = linha["Descrição do Item"]
@@ -68,20 +73,26 @@ def main() -> None:
             if not resultado_linha.empty:
                 resultados_parciais.append(resultado_linha.iloc[0].to_dict())
 
-            if salvar_automaticamente:
-                salvar_resultado_parcial_em_excel()
-
     except KeyboardInterrupt:
-        print("\n🛑 Interrupção manual detectada (Ctrl+C). Salvando progresso...")
-        salvar_resultado_parcial_em_excel()
-        print("⏹️ Execução interrompida com segurança.\n")
-        sys.exit(0)
+        print("\n🛑 Interrupção manual detectada (Ctrl+C).")
 
-    print("\n✅ Todas as buscas foram concluídas!")
+    finally:
+        if resultados_parciais:
+            caminho_planilha = salvar_resultado_parcial_em_excel()
+            if caminho_planilha:
+                try:
+                    resposta = input("Deseja salvar a planilha gerada? (s/n): ").strip().lower()
+                except (KeyboardInterrupt, EOFError):
+                    resposta = "n"
+                if resposta != "s":
+                    os.remove(caminho_planilha)
+                    print("🗑️ Planilha temporária descartada.")
+                else:
+                    print(f"📁 Planilha mantida em: {caminho_planilha}")
+        else:
+            print("⚠️ Nenhum dado coletado. Nada para salvar.")
 
-    df_final = pd.DataFrame(resultados_parciais)
-    df_final.to_excel(ARQUIVO_RESULTADO, index=False)
-    print(f"\n📁 Resultados finais salvos em: {ARQUIVO_RESULTADO}")
+        print("\n⏹️ Execução finalizada.")
 
 
 if __name__ == "__main__":
