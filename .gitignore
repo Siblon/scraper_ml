@@ -1,0 +1,20 @@
+# Bytecode do Python
+__pycache__/
+*.py[cod]
+
+# Ambientes virtuais
+venv/
+.env/
+
+# Planilhas temporárias
+planilhas/*.xlsx
+
+# Logs temporários
+*.log
+
+# Arquivos de cache
+*.db
+*.sqlite3
+
+# Arquivos VSCode
+.vscode/
