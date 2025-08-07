@@ -53,6 +53,51 @@ def abrir_navegador_anonimo() -> webdriver.Chrome:
     return webdriver.Chrome(options=options)
 
 
+def scroll_ate_carregar_tudo(driver: webdriver.Chrome, timeout: int = 30) -> None:
+    """Rola a página progressivamente até que todos os produtos sejam renderizados.
+
+    A função realiza scrolls incrementais e aguarda o carregamento de novos cards
+    de produto. A execução é encerrada quando não surgem novos elementos ou quando
+    o tempo limite é atingido.
+    """
+
+    seletor_cards = "li.ui-search-layout__item, .ui-search-result__wrapper"
+    wait = WebDriverWait(driver, 20)
+
+    # Aguarda o primeiro card aparecer na tela antes de iniciar o scroll
+    try:
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, seletor_cards)))
+    except TimeoutException:
+        return
+
+    total_anterior = 0
+    inicio = time.time()
+
+    while True:
+        # Verifica quantos cards estão carregados no momento
+        cards = driver.find_elements(By.CSS_SELECTOR, seletor_cards)
+        total_atual = len(cards)
+
+        # Se não surgiram novos cards ou ultrapassou o tempo, encerra
+        if total_atual <= total_anterior or time.time() - inicio > timeout:
+            break
+
+        total_anterior = total_atual
+
+        # Faz um scroll incremental para disparar o carregamento de mais itens
+        driver.execute_script("window.scrollBy(0, 800);")
+        time.sleep(1)
+
+        # Aguarda surgir ao menos um novo card após o scroll
+        try:
+            WebDriverWait(driver, 5).until(
+                lambda d: len(d.find_elements(By.CSS_SELECTOR, seletor_cards)) > total_anterior
+            )
+        except TimeoutException:
+            # Ignora se nenhum novo card aparecer dentro do tempo de espera
+            pass
+
+
 def extrair_com_selenium(termo: str) -> Optional[str]:
     termo_formatado = termo.replace(" ", "-")
     url = f"https://lista.mercadolivre.com.br/{termo_formatado}"
@@ -63,14 +108,11 @@ def extrair_com_selenium(termo: str) -> Optional[str]:
             driver = abrir_navegador_anonimo()
             driver.get(url)
 
-            wait = WebDriverWait(driver, 10)
-            wait.until(
-                EC.presence_of_all_elements_located(
-                    (By.CSS_SELECTOR, "li.ui-search-layout__item")
-                )
-            )
+            # Garante que todos os produtos possíveis sejam carregados na página
+            scroll_ate_carregar_tudo(driver)
 
-            itens = driver.find_elements(By.CSS_SELECTOR, "li.ui-search-layout__item")
+            seletor_cards = "li.ui-search-layout__item, .ui-search-result__wrapper"
+            itens = driver.find_elements(By.CSS_SELECTOR, seletor_cards)
             for item in itens:
                 try:
                     link_el = item.find_element(By.CSS_SELECTOR, "a.ui-search-link")
