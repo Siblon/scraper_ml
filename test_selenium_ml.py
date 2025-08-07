@@ -17,20 +17,22 @@ def main() -> None:
     options.add_argument("--headless=new")
 
     driver = None
-    selector = "li.ui-search-layout__item a.ui-search-link"
+    # Novo seletor mais robusto que contempla diferentes estruturas de card
+    selector = "[data-testid='item'] a.ui-search-link, li.ui-search-layout__item a.ui-search-link"
     try:
         print(f"Acessando URL: {url}")
         driver = webdriver.Chrome(options=options)
-        print("Página carregada, aguardando resultados...")
+        print("Navegador iniciado, carregando página...")
         driver.get(url)
+        print("Página carregada, iniciando espera pelos produtos...")
 
         wait = WebDriverWait(driver, 20)
-        element = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, selector))
+        print("Aguardando elementos de produto usando o seletor atualizado...")
+        elements = wait.until(
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR, selector))
         )
-        elements = driver.find_elements(By.CSS_SELECTOR, selector)
-        print(f"Quantidade de produtos encontrados: {len(elements)}")
-        link = element.get_attribute("href")
+        print(f"Elementos encontrados: {len(elements)}")
+        link = elements[0].get_attribute("href")
         print(f"Primeiro link encontrado: {link}")
     except TimeoutException:
         print("Erro: nenhum produto encontrado dentro do tempo limite.")
