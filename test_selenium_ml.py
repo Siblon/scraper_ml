@@ -60,13 +60,17 @@ def main() -> None:
             print("Perfil padrão do Chrome não encontrado, prosseguindo sem perfil.")
 
     driver = None
-    # Novo seletor mais robusto que contempla diferentes estruturas de card
-    selector = "[data-testid='item'] a.ui-search-link, li.ui-search-layout__item a.ui-search-link"
+    product_selector = "li.ui-search-layout__item"
     try:
         print(f"Acessando URL: {url}")
         driver = webdriver.Chrome(options=options)
         print("Navegador iniciado, carregando página...")
         driver.get(url)
+        if "#" in driver.current_url:
+            clean_url = driver.current_url.split("#")[0]
+            if clean_url != driver.current_url:
+                print("URL contém hash, recarregando sem o hash...")
+                driver.get(clean_url)
         if args.pause_login:
             input("Faça login manualmente e pressione Enter para continuar...")
         print("Página carregada, iniciando espera pelos produtos...")
@@ -90,13 +94,15 @@ def main() -> None:
         WebDriverWait(driver, 20).until(
             EC.visibility_of_element_located((By.CSS_SELECTOR, container_selector))
         )
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(2)
 
-        elements = WebDriverWait(driver, 20).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, selector))
+        produtos = WebDriverWait(driver, 20).until(
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR, product_selector))
         )
 
-        print(f"Elementos encontrados: {len(elements)}")
-        link = elements[0].get_attribute("href")
+        print(f"Produtos encontrados: {len(produtos)}")
+        link = produtos[0].find_element(By.CSS_SELECTOR, "a.ui-search-link").get_attribute("href")
         print(f"Primeiro link encontrado: {link}")
         try:
             screenshot = "produtos.png"
