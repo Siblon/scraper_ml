@@ -11,6 +11,8 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
+from datetime import datetime
 
 # Cabeçalho falso para requests
 HEADERS = {
@@ -32,21 +34,28 @@ def extrair_com_bs4(html: str) -> Optional[str]:
     return None
 
 
+def abrir_navegador_anonimo() -> webdriver.Chrome:
+    options = Options()
+    options.add_argument("--headless=new")
+    options.add_argument("--incognito")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_argument("--window-size=1920,1080")
+    return webdriver.Chrome(options=options)
+
+
 def extrair_com_selenium(termo: str) -> Optional[str]:
     termo_formatado = termo.replace(" ", "-")
     url = f"https://lista.mercadolivre.com.br/{termo_formatado}"
 
-    options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_argument("--window-size=1920,1080")
-
+    driver: Optional[webdriver.Chrome] = None
     try:
-        driver = webdriver.Chrome(options=options)
+        driver = abrir_navegador_anonimo()
         driver.get(url)
 
         wait = WebDriverWait(driver, 10)
-        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "li.ui-search-layout__item a.ui-search-link")))
+        wait.until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "li.ui-search-layout__item a.ui-search-link"))
+        )
 
         elementos = driver.find_elements(By.CSS_SELECTOR, "li.ui-search-layout__item a.ui-search-link")
         for el in elementos:
@@ -54,10 +63,28 @@ def extrair_com_selenium(termo: str) -> Optional[str]:
             if REGEX_LINK_PRODUTO.match(href):
                 return href
 
+        # Se chegou aqui, nenhum link válido foi encontrado
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        screenshot = f"timeout_{timestamp}.png"
+        driver.save_screenshot(screenshot)
+        print(f"🖼️ Screenshot salva em {screenshot}")
+
     except Exception as e:
-        print(f"❌ Erro Selenium: {e}")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if driver:
+            screenshot = f"timeout_{timestamp}.png"
+            try:
+                driver.save_screenshot(screenshot)
+                print(f"🖼️ Screenshot salva em {screenshot}")
+            except Exception:
+                pass
+        if isinstance(e, TimeoutException):
+            print("⏰ Timeout ao buscar produtos.")
+        else:
+            print(f"❌ Erro Selenium: {e}")
     finally:
-        driver.quit()
+        if driver:
+            driver.quit()
 
     return None
 
